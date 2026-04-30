@@ -4,27 +4,25 @@ import type { TuzResult } from './tuz';
 import * as XLSX from 'xlsx';
 
 /* ─── Types ─── */
-export type ProjectType = 'kirec' | 'tekstur' | 'tuz';
-
-export interface MeasurementEntry<T = any> {
+export interface SoilSample {
   id: string;
-  result: T;
+  ornekNo: string;
   timestamp: string; // ISO string
+  calcimeterResult?: CalcimeterResult;
+  textureResult?: TextureResult;
+  tuzResult?: TuzResult;
 }
 
 export interface Project {
   id: string;
   name: string;
   createdAt: string;
-  type: ProjectType;
-  measurements: MeasurementEntry<any>[];
+  samples: SoilSample[];
 }
 
 export interface AppState {
   projects: Project[];
-  activeProjectId: string | null; // For kirec
-  activeTextureProjectId: string | null; // For tekstur
-  activeTuzProjectId: string | null; // For tuz
+  activeProjectId: string | null;
 }
 
 const STORAGE_KEY = 'calcimeter_app_state';
@@ -40,20 +38,43 @@ export function loadState(): AppState {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as any;
-      // Backwards compatibility
-      const projects = (parsed.projects || []).map((p: any) => ({
-        ...p,
-        type: p.type || 'kirec',
-      }));
+      
+      const projects: Project[] = (parsed.projects || []).map((p: any) => {
+        // Zaten yeni formattaysa aynen döndür
+        if (p.samples) return p;
+
+        // Eski formattaysa dönüştür
+        const samples: SoilSample[] = (p.measurements || []).map((m: any) => {
+          const sample: SoilSample = {
+            id: m.id || genId(),
+            ornekNo: m.result?.ornekNo || 'Bilinmiyor',
+            timestamp: m.timestamp || new Date().toISOString(),
+          };
+          if (p.type === 'kirec') sample.calcimeterResult = m.result;
+          else if (p.type === 'tekstur') sample.textureResult = m.result;
+          else if (p.type === 'tuz') sample.tuzResult = m.result;
+          return sample;
+        });
+
+        const typeName = p.type === 'kirec' ? 'Kireç' : p.type === 'tekstur' ? 'Tekstür' : p.type === 'tuz' ? 'Tuz' : 'Eski';
+        return {
+          id: p.id,
+          name: `${p.name} (${typeName})`,
+          createdAt: p.createdAt || new Date().toISOString(),
+          samples,
+        };
+      });
+
+      // Eski active project id'leri birleştir (herhangi biri aktifse onu al)
+      const activeProjectId = parsed.activeProjectId || parsed.activeTextureProjectId || parsed.activeTuzProjectId || null;
+
       return {
         projects,
-        activeProjectId: parsed.activeProjectId || null,
-        activeTextureProjectId: parsed.activeTextureProjectId || null,
-        activeTuzProjectId: parsed.activeTuzProjectId || null,
+        activeProjectId,
       };
     }
   } catch { /* ignore */ }
-  return { projects: [], activeProjectId: null, activeTextureProjectId: null, activeTuzProjectId: null };
+  return { projects: [], activeProjectId: null };
 }
 
 export function saveState(state: AppState): void {
@@ -61,120 +82,129 @@ export function saveState(state: AppState): void {
 }
 
 /* ─── Project Operations ─── */
-export function createProject(state: AppState, name: string, type: ProjectType): AppState {
+export function createProject(state: AppState, name: string): AppState {
   const project: Project = {
     id: genId(),
     name,
     createdAt: new Date().toISOString(),
-    type,
-    measurements: [],
+    samples: [],
   };
   return {
     ...state,
     projects: [...state.projects, project],
-    ...(type === 'kirec' ? { activeProjectId: project.id } : type === 'tekstur' ? { activeTextureProjectId: project.id } : { activeTuzProjectId: project.id }),
+    activeProjectId: project.id,
   };
 }
 
 export function deleteProject(state: AppState, projectId: string): AppState {
-  const projectToDelete = state.projects.find((p) => p.id === projectId);
   const projects = state.projects.filter((p) => p.id !== projectId);
+  let { activeProjectId } = state;
   
-  let { activeProjectId, activeTextureProjectId, activeTuzProjectId } = state;
-  
-  if (projectToDelete?.type === 'kirec' && activeProjectId === projectId) {
-    const remaining = projects.filter(p => p.type === 'kirec');
-    activeProjectId = remaining.length > 0 ? remaining[0].id : null;
-  } else if (projectToDelete?.type === 'tekstur' && activeTextureProjectId === projectId) {
-    const remaining = projects.filter(p => p.type === 'tekstur');
-    activeTextureProjectId = remaining.length > 0 ? remaining[0].id : null;
-  } else if (projectToDelete?.type === 'tuz' && activeTuzProjectId === projectId) {
-    const remaining = projects.filter(p => p.type === 'tuz');
-    activeTuzProjectId = remaining.length > 0 ? remaining[0].id : null;
+  if (activeProjectId === projectId) {
+    activeProjectId = projects.length > 0 ? projects[0].id : null;
   }
 
-  return { projects, activeProjectId, activeTextureProjectId, activeTuzProjectId };
+  return { projects, activeProjectId };
 }
 
-export function addMeasurement(state: AppState, projectId: string, result: any): AppState {
-  const entry: MeasurementEntry = {
-    id: genId(),
-    result,
-    timestamp: new Date().toISOString(),
-  };
+export type AnalysisType = 'calcimeter' | 'texture' | 'tuz';
+
+export function addOrUpdateSample(state: AppState, projectId: string, type: AnalysisType, result: any): AppState {
   return {
     ...state,
-    projects: state.projects.map((p) =>
-      p.id === projectId ? { ...p, measurements: [...p.measurements, entry] } : p
-    ),
+    projects: state.projects.map((p) => {
+      if (p.id !== projectId) return p;
+
+      const existingSampleIndex = p.samples.findIndex((s) => s.ornekNo === result.ornekNo);
+      
+      if (existingSampleIndex >= 0) {
+        // Var olan örneği güncelle
+        const updatedSamples = [...p.samples];
+        const updatedSample = { ...updatedSamples[existingSampleIndex], timestamp: new Date().toISOString() };
+        
+        if (type === 'calcimeter') updatedSample.calcimeterResult = result;
+        else if (type === 'texture') updatedSample.textureResult = result;
+        else if (type === 'tuz') updatedSample.tuzResult = result;
+        
+        updatedSamples[existingSampleIndex] = updatedSample;
+        return { ...p, samples: updatedSamples };
+      } else {
+        // Yeni örnek ekle
+        const newSample: SoilSample = {
+          id: genId(),
+          ornekNo: result.ornekNo,
+          timestamp: new Date().toISOString(),
+        };
+        if (type === 'calcimeter') newSample.calcimeterResult = result;
+        else if (type === 'texture') newSample.textureResult = result;
+        else if (type === 'tuz') newSample.tuzResult = result;
+        
+        return { ...p, samples: [...p.samples, newSample] };
+      }
+    }),
   };
 }
 
-export function deleteMeasurement(state: AppState, projectId: string, measurementId: string): AppState {
+export function deleteSample(state: AppState, projectId: string, sampleId: string): AppState {
   return {
     ...state,
     projects: state.projects.map((p) =>
       p.id === projectId
-        ? { ...p, measurements: p.measurements.filter((m) => m.id !== measurementId) }
+        ? { ...p, samples: p.samples.filter((s) => s.id !== sampleId) }
         : p
     ),
   };
 }
 
 /* ─── Active Project Helper ─── */
-export function getActiveProject(state: AppState, type: ProjectType): Project | null {
-  const activeId = type === 'kirec' ? state.activeProjectId : type === 'tekstur' ? state.activeTextureProjectId : state.activeTuzProjectId;
-  if (!activeId) return null;
-  return state.projects.find((p) => p.id === activeId) ?? null;
+export function getActiveProject(state: AppState): Project | null {
+  if (!state.activeProjectId) return null;
+  return state.projects.find((p) => p.id === state.activeProjectId) ?? null;
 }
 
-export function setActiveProject(state: AppState, projectId: string, type: ProjectType): AppState {
-  return {
-    ...state,
-    ...(type === 'kirec' ? { activeProjectId: projectId } : type === 'tekstur' ? { activeTextureProjectId: projectId } : { activeTuzProjectId: projectId }),
-  };
+export function setActiveProject(state: AppState, projectId: string): AppState {
+  return { ...state, activeProjectId: projectId };
 }
 
 /* ─── CSV Export ─── */
 export function exportProjectCSV(project: Project): string {
-  let headers: string[];
-  let rows: string[];
+  const headers = [
+    'Örnek No', 'Son Güncelleme', 
+    // Kireç
+    'Ağırlık (g)', 'Kireç Sıcaklık (°C)', 'Basınç (mmHg)', 'Okuma (cm³)', 'Buhar Bas. (mmHg)', 'Düzeltilmiş Hacim (cm³)', '% CaCO3', 'Kireç Sınıfı',
+    // Tekstür
+    'Kum (%)', 'Silt (%)', 'Kil (%)', 'Tekstür Sınıfı (TR)', 'Tekstür Sınıfı (EN)',
+    // Tuz
+    'Tuz Sıcaklık (°C)', 'Saturasyon (cm³)', 'Direnç (Ohm)', '% Toplam Tuz', 'Tuz Sınıfı (%)', 'ECe (dS/m)', 'Tuz Sınıfı (ECe)', 'Uygun Bitkiler'
+  ];
 
-  if (project.type === 'kirec') {
-    headers = [
-      'Örnek No', 'Tarih', 'Ağırlık (g)', 'Sıcaklık (°C)', 'Basınç (mmHg)',
-      'Okuma (cm³)', 'Buhar Basıncı (mmHg)', 'Düzeltilmiş Hacim (cm³)', '% CaCO3', 'Sınıf'
-    ];
-    rows = project.measurements.map((m) => {
-      const r = m.result as CalcimeterResult;
-      const dateStr = new Date(m.timestamp).toLocaleString('tr-TR');
-      return [
-        r.ornekNo, dateStr, r.agirlik, r.sicaklik, r.basincMmHg.toFixed(1),
-        r.okuma, r.buharBasinci.toFixed(4), r.duzeltilmisHacim.toFixed(4),
-        r.caco3Yuzde.toFixed(2), r.sinif
-      ].join(';');
-    });
-  } else if (project.type === 'tekstur') {
-    headers = ['Örnek No', 'Tarih', 'Kum (%)', 'Silt (%)', 'Kil (%)', 'Sınıf (TR)', 'Sınıf (EN)'];
-    rows = project.measurements.map((m) => {
-      const r = m.result as TextureResult;
-      const dateStr = new Date(m.timestamp).toLocaleString('tr-TR');
-      return [
-        r.ornekNo, dateStr, r.sand.toFixed(2), r.silt.toFixed(2), r.clay.toFixed(2),
-        r.textureClassTR, r.textureClass
-      ].join(';');
-    });
-  } else {
-    headers = ['Örnek No', 'Tarih', 'Sıcaklık (°C)', 'Saturasyon (cm³)', 'Direnç (Ohm)', '% Toplam Tuz', 'Tuz Sınıfı (%)', 'ECe (dS/m)', 'Tuz Sınıfı (ECe)', 'Uygun Bitkiler'];
-    rows = project.measurements.map((m) => {
-      const r = m.result as TuzResult;
-      const dateStr = new Date(m.timestamp).toLocaleString('tr-TR');
-      return [
-        r.ornekNo, dateStr, r.temperature, r.saturation, r.resistance,
-        r.saltPct.toFixed(2), r.saltClassPct, r.ece.toFixed(1), r.saltClassEce, r.suitableCrops
-      ].join(';');
-    });
-  }
+  const rows = project.samples.map((s) => {
+    const dateStr = new Date(s.timestamp).toLocaleString('tr-TR');
+    
+    // Kireç
+    const cr = s.calcimeterResult;
+    const calcData = cr ? [
+      cr.agirlik, cr.sicaklik, cr.basincMmHg.toFixed(1), cr.okuma, 
+      cr.buharBasinci.toFixed(4), cr.duzeltilmisHacim.toFixed(4), 
+      cr.caco3Yuzde.toFixed(2), cr.sinif
+    ] : ['', '', '', '', '', '', '', ''];
+
+    // Tekstür
+    const tr = s.textureResult;
+    const texData = tr ? [
+      tr.sand.toFixed(2), tr.silt.toFixed(2), tr.clay.toFixed(2),
+      tr.textureClassTR, tr.textureClass
+    ] : ['', '', '', '', ''];
+
+    // Tuz
+    const tz = s.tuzResult;
+    const tuzData = tz ? [
+      tz.temperature, tz.saturation, tz.resistance,
+      tz.saltPct.toFixed(2), tz.saltClassPct, tz.ece.toFixed(1), tz.saltClassEce, tz.suitableCrops
+    ] : ['', '', '', '', '', '', '', ''];
+
+    return [s.ornekNo, dateStr, ...calcData, ...texData, ...tuzData].join(';');
+  });
 
   return [headers.join(';'), ...rows].join('\n');
 }
@@ -192,57 +222,46 @@ export function downloadCSV(csv: string, filename: string): void {
 
 /* ─── Excel (XLSX) Export ─── */
 export function exportProjectExcel(project: Project): void {
-  let data: any[];
+  const data = project.samples.map((s) => {
+    const cr = s.calcimeterResult;
+    const tr = s.textureResult;
+    const tz = s.tuzResult;
 
-  if (project.type === 'kirec') {
-    data = project.measurements.map((m) => {
-      const r = m.result as CalcimeterResult;
-      return {
-        'Örnek No': r.ornekNo,
-        'Tarih': new Date(m.timestamp).toLocaleString('tr-TR'),
-        'Ağırlık (g)': r.agirlik,
-        'Sıcaklık (°C)': r.sicaklik,
-        'Basınç (mmHg)': Number(r.basincMmHg.toFixed(1)),
-        'Okuma (cm³)': r.okuma,
-        'Buhar Basıncı (mmHg)': Number(r.buharBasinci.toFixed(4)),
-        'Düzeltilmiş Hacim (cm³)': Number(r.duzeltilmisHacim.toFixed(4)),
-        '% CaCO3': Number(r.caco3Yuzde.toFixed(2)),
-        'Sınıf': r.sinif,
-      };
-    });
-  } else if (project.type === 'tekstur') {
-    data = project.measurements.map((m) => {
-      const r = m.result as TextureResult;
-      return {
-        'Örnek No': r.ornekNo,
-        'Tarih': new Date(m.timestamp).toLocaleString('tr-TR'),
-        'Kum (%)': Number(r.sand.toFixed(2)),
-        'Silt (%)': Number(r.silt.toFixed(2)),
-        'Kil (%)': Number(r.clay.toFixed(2)),
-        'Sınıf (TR)': r.textureClassTR,
-        'Sınıf (EN)': r.textureClass,
-      };
-    });
-  } else {
-    data = project.measurements.map((m) => {
-      const r = m.result as TuzResult;
-      return {
-        'Örnek No': r.ornekNo,
-        'Tarih': new Date(m.timestamp).toLocaleString('tr-TR'),
-        'Sıcaklık (°C)': r.temperature,
-        'Saturasyon (cm³)': r.saturation,
-        'Direnç (Ohm)': r.resistance,
-        '% Toplam Tuz': Number(r.saltPct.toFixed(2)),
-        'Tuz Sınıfı (%)': r.saltClassPct,
-        'ECe (dS/m)': Number(r.ece.toFixed(1)),
-        'Tuz Sınıfı (ECe)': r.saltClassEce,
-        'Uygun Bitkiler': r.suitableCrops,
-      };
-    });
-  }
+    return {
+      'Örnek No': s.ornekNo,
+      'Son Güncelleme': new Date(s.timestamp).toLocaleString('tr-TR'),
+      
+      // Kireç
+      'Ağırlık (g)': cr?.agirlik ?? '',
+      'Kireç Sıcaklık (°C)': cr?.sicaklik ?? '',
+      'Basınç (mmHg)': cr ? Number(cr.basincMmHg.toFixed(1)) : '',
+      'Okuma (cm³)': cr?.okuma ?? '',
+      'Buhar Bas. (mmHg)': cr ? Number(cr.buharBasinci.toFixed(4)) : '',
+      'Düz. Hacim (cm³)': cr ? Number(cr.duzeltilmisHacim.toFixed(4)) : '',
+      '% CaCO3': cr ? Number(cr.caco3Yuzde.toFixed(2)) : '',
+      'Kireç Sınıfı': cr?.sinif ?? '',
+
+      // Tekstür
+      'Kum (%)': tr ? Number(tr.sand.toFixed(2)) : '',
+      'Silt (%)': tr ? Number(tr.silt.toFixed(2)) : '',
+      'Kil (%)': tr ? Number(tr.clay.toFixed(2)) : '',
+      'Tekstür Sınıfı (TR)': tr?.textureClassTR ?? '',
+      'Tekstür Sınıfı (EN)': tr?.textureClass ?? '',
+
+      // Tuz
+      'Tuz Sıcaklık (°C)': tz?.temperature ?? '',
+      'Saturasyon (cm³)': tz?.saturation ?? '',
+      'Direnç (Ohm)': tz?.resistance ?? '',
+      '% Toplam Tuz': tz ? Number(tz.saltPct.toFixed(2)) : '',
+      'Tuz Sınıfı (%)': tz?.saltClassPct ?? '',
+      'ECe (dS/m)': tz ? Number(tz.ece.toFixed(1)) : '',
+      'Tuz Sınıfı (ECe)': tz?.saltClassEce ?? '',
+      'Uygun Bitkiler': tz?.suitableCrops ?? '',
+    };
+  });
 
   const ws = XLSX.utils.json_to_sheet(data);
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Analiz Sonucları");
-  XLSX.writeFile(wb, `${project.name}.xlsx`);
+  XLSX.utils.book_append_sheet(wb, ws, "Tüm Analizler");
+  XLSX.writeFile(wb, `${project.name.replace(/[^a-zA-Z0-9ğüşıöçĞÜŞİÖÇ_\- ]/g, '')}.xlsx`);
 }

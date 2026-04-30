@@ -1,18 +1,11 @@
-import { useState, useCallback, useEffect, type FormEvent } from 'react';
-import {
-  hesapla,
-  CalcimeterError,
-  type CalcimeterInput,
-  type CalcimeterResult,
-  type CalcimeterWarning,
-} from './lib/calcimeter';
+import { useState, useCallback, useEffect } from 'react';
 import {
   loadState,
   saveState,
   createProject,
   deleteProject,
-  addMeasurement,
-  deleteMeasurement,
+  deleteSample,
+  addOrUpdateSample,
   getActiveProject,
   setActiveProject,
   exportProjectCSV,
@@ -21,151 +14,70 @@ import {
   type AppState,
 } from './lib/store';
 import { exportProjectPDF } from './lib/pdf-export';
+import CalcimeterPage from './CalcimeterPage';
 import TexturePage from './TexturePage';
 import TuzPage from './TuzPage';
 import './index.css';
 
-type TabId = 'kirec' | 'tekstur' | 'tuz';
-
-/* ─── Helpers ─── */
-function classForSinif(sinif: string): string {
-  if (sinif.startsWith('Az')) return 'class--az';
-  if (sinif === 'Kireçli') return 'class--kirecli';
-  if (sinif.startsWith('Orta')) return 'class--orta';
-  if (sinif.startsWith('Fazla')) return 'class--fazla';
-  return 'class--cok';
-}
-
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString('tr-TR') + ' ' + d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
-}
+type TabId = 'master' | 'calcimeter' | 'texture' | 'tuz';
 
 export default function App() {
   /* ─── App State ─── */
   const [state, setState] = useState<AppState>(() => loadState());
-  const [activeTab, setActiveTab] = useState<TabId>('kirec');
+  const [activeTab, setActiveTab] = useState<TabId>('master');
   const [showNewProject, setShowNewProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [selectedOrnekNo, setSelectedOrnekNo] = useState<string>('');
 
   // Persist
   useEffect(() => { saveState(state); }, [state]);
 
-  const activeProject = getActiveProject(state, activeTab);
-
-  /* ─── Form State ─── */
-  const [ornekNo, setOrnekNo] = useState('');
-  const [agirlik, setAgirlik] = useState('');
-  const [sicaklik, setSicaklik] = useState('');
-  const [basinc, setBasinc] = useState('');
-  const [basincBirimi, setBasincBirimi] = useState<'mmHg' | 'mbar'>('mmHg');
-  const [okuma, setOkuma] = useState('');
-
-  const [lastResult, setLastResult] = useState<CalcimeterResult | null>(null);
-  const [warnings, setWarnings] = useState<CalcimeterWarning[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const activeProject = getActiveProject(state);
 
   /* ─── Project Handlers ─── */
   const handleCreateProject = useCallback(() => {
     const name = newProjectName.trim();
     if (!name) return;
-    setState((s) => createProject(s, name, activeTab));
+    setState((s) => createProject(s, name));
     setNewProjectName('');
     setShowNewProject(false);
-    setLastResult(null);
-  }, [newProjectName, activeTab]);
+    setActiveTab('master');
+    setSelectedOrnekNo('');
+  }, [newProjectName]);
 
   const handleDeleteProject = useCallback((id: string) => {
     setState((s) => deleteProject(s, id));
     setDeleteConfirmId(null);
-    setLastResult(null);
   }, []);
 
   const handleSelectProject = useCallback((id: string) => {
-    setState((s) => setActiveProject(s, id, activeTab));
-    setLastResult(null);
-    setError(null);
-    setWarnings([]);
-  }, [activeTab]);
-
-  /* ─── Form Handlers ─── */
-  const handleReset = useCallback(() => {
-    setOrnekNo('');
-    setAgirlik('');
-    setSicaklik('');
-    setBasinc('');
-    setOkuma('');
-    setLastResult(null);
-    setWarnings([]);
-    setError(null);
+    setState((s) => setActiveProject(s, id));
+    setActiveTab('master');
+    setSelectedOrnekNo('');
   }, []);
 
-  const handleSubmit = useCallback(
-    (e: FormEvent) => {
-      e.preventDefault();
-      setError(null);
-      setWarnings([]);
-      setLastResult(null);
-
-      if (!activeProject) {
-        setError('Önce bir proje oluşturun veya seçin.');
-        return;
-      }
-
-      const input: CalcimeterInput = {
-        ornekNo: ornekNo.trim() || `Örnek-${activeProject.measurements.length + 1}`,
-        agirlik: parseFloat(agirlik),
-        sicaklik: parseFloat(sicaklik),
-        basinc: parseFloat(basinc),
-        basincBirimi,
-        okuma: parseFloat(okuma),
-      };
-
-      if (isNaN(input.agirlik) || isNaN(input.sicaklik) || isNaN(input.basinc) || isNaN(input.okuma)) {
-        setError('Tüm sayısal alanları doğru doldurun.');
-        return;
-      }
-
-      try {
-        const { result: r, warnings: w } = hesapla(input);
-        setLastResult(r);
-        setWarnings(w);
-        setState((s) => addMeasurement(s, activeProject.id, r));
-      } catch (err) {
-        if (err instanceof CalcimeterError) {
-          setError(err.message);
-        } else {
-          setError('Beklenmeyen bir hata oluştu.');
-        }
-      }
-    },
-    [ornekNo, agirlik, sicaklik, basinc, basincBirimi, okuma, activeProject]
-  );
-
-  const handleDeleteMeasurement = useCallback(
-    (measurementId: string) => {
-      if (!activeProject) return;
-      setState((s) => deleteMeasurement(s, activeProject.id, measurementId));
-    },
-    [activeProject]
-  );
+  const handleDeleteSample = useCallback((sampleId: string) => {
+    if (!activeProject) return;
+    if (confirm('Bu örneği ve tüm analiz sonuçlarını silmek istediğinize emin misiniz?')) {
+      setState((s) => deleteSample(s, activeProject.id, sampleId));
+    }
+  }, [activeProject]);
 
   const handleExportCSV = useCallback(() => {
-    if (!activeProject || activeProject.measurements.length === 0) return;
+    if (!activeProject || activeProject.samples.length === 0) return;
     const csv = exportProjectCSV(activeProject);
     const safeName = activeProject.name.replace(/[^a-zA-Z0-9ğüşıöçĞÜŞİÖÇ_\- ]/g, '').replace(/\s+/g, '_');
-    const suffix = activeTab === 'kirec' ? 'CaCO3_sonuclari' : activeTab === 'tekstur' ? 'Tekstur_sonuclari' : 'Tuz_sonuclari';
-    downloadCSV(csv, `${safeName}_${suffix}.csv`);
-  }, [activeProject, activeTab]);
+    downloadCSV(csv, `${safeName}_Tum_Analizler.csv`);
+  }, [activeProject]);
 
   const handleExportPDF = useCallback(async () => {
-    if (!activeProject || activeProject.measurements.length === 0) return;
+    if (!activeProject || activeProject.samples.length === 0) return;
     await exportProjectPDF(activeProject);
   }, [activeProject]);
 
   const handleExportExcel = useCallback(() => {
-    if (!activeProject || activeProject.measurements.length === 0) return;
+    if (!activeProject || activeProject.samples.length === 0) return;
     exportProjectExcel(activeProject);
   }, [activeProject]);
 
@@ -185,30 +97,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* ── Tab Navigation ── */}
-        <div className="sidebar__tabs">
-          <button
-            className={`sidebar__tab ${activeTab === 'kirec' ? 'sidebar__tab--active' : ''}`}
-            onClick={() => setActiveTab('kirec')}
-          >
-            ⚗️ Kireç Tayini
-          </button>
-          <button
-            className={`sidebar__tab ${activeTab === 'tekstur' ? 'sidebar__tab--active' : ''}`}
-            onClick={() => setActiveTab('tekstur')}
-          >
-            📐 Tekstür Üçgeni
-          </button>
-          <button
-            className={`sidebar__tab ${activeTab === 'tuz' ? 'sidebar__tab--active' : ''}`}
-            onClick={() => setActiveTab('tuz')}
-            title="Tuz ve ECe Tayini"
-          >
-            ⚗️ Tuz Tayini
-          </button>
-        </div>
-
-        <div className="sidebar__new-project">
+        <div className="sidebar__new-project" style={{ padding: '1rem' }}>
           <button
             className="btn-new-project"
             onClick={() => setShowNewProject(true)}
@@ -218,22 +107,22 @@ export default function App() {
           </button>
         </div>
 
-        <div className="sidebar__projects" style={{ display: activeTab === 'kirec' || activeTab === 'tekstur' || activeTab === 'tuz' ? undefined : 'none' }}>
+        <div className="sidebar__projects">
           <div className="sidebar__section-label">Projeler</div>
-          {state.projects.filter(p => p.type === activeTab).length === 0 && (
+          {state.projects.length === 0 && (
             <div style={{ padding: '1rem 1.25rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
               Henüz proje yok.
             </div>
           )}
-          {state.projects.filter(p => p.type === activeTab).map((p) => (
+          {state.projects.map((p) => (
             <div
               key={p.id}
-              className={`project-item ${(activeTab === 'kirec' ? state.activeProjectId : activeTab === 'tekstur' ? state.activeTextureProjectId : state.activeTuzProjectId) === p.id ? 'project-item--active' : ''}`}
+              className={`project-item ${state.activeProjectId === p.id ? 'project-item--active' : ''}`}
               onClick={() => handleSelectProject(p.id)}
             >
               <span className="project-item__icon">📁</span>
               <span className="project-item__name">{p.name}</span>
-              <span className="project-item__count">{p.measurements.length}</span>
+              <span className="project-item__count">{p.samples.length}</span>
               {deleteConfirmId === p.id ? (
                 <div className="delete-confirm" onClick={(e) => e.stopPropagation()}>
                   <button onClick={() => handleDeleteProject(p.id)}>Sil</button>
@@ -267,41 +156,23 @@ export default function App() {
           <div style={{ textAlign: 'center', paddingTop: '6rem', color: 'var(--text-muted)' }}>
             <div style={{ fontSize: '3rem', marginBottom: '0.75rem', opacity: 0.3 }}>📂</div>
             <div style={{ fontSize: '1.05rem', fontWeight: 500 }}>
-              Başlamak için bir proje oluşturun
+              Başlamak için bir proje oluşturun veya seçin
             </div>
             <div style={{ fontSize: '0.85rem', marginTop: '0.3rem' }}>
               Sol panelden "Yeni Proje" butonuna tıklayın.
             </div>
           </div>
-        ) : activeTab === 'tekstur' ? (
-          <TexturePage
-            project={activeProject}
-            onAddMeasurement={(r) => setState((s) => addMeasurement(s, activeProject.id, r))}
-            onDeleteMeasurement={handleDeleteMeasurement}
-            onExportPDF={handleExportPDF}
-            onExportCSV={handleExportCSV}
-            onExportExcel={handleExportExcel}
-          />
-        ) : activeTab === 'tuz' ? (
-          <TuzPage
-            project={activeProject}
-            onAddMeasurement={(r) => setState((s) => addMeasurement(s, activeProject.id, r))}
-            onDeleteMeasurement={handleDeleteMeasurement}
-            onExportPDF={handleExportPDF}
-            onExportCSV={handleExportCSV}
-            onExportExcel={handleExportExcel}
-          />
         ) : (
           <>
             {/* ── Title ── */}
-            <div className="main__title-row">
+            <div className="main__title-row" style={{ paddingBottom: 0 }}>
               <h1 className="main__title">
                 {activeProject.name}
                 <span className="main__title-badge">
-                  {activeProject.measurements.length} ölçüm
+                  {activeProject.samples.length} örnek
                 </span>
               </h1>
-              {activeProject.measurements.length > 0 && (
+              {activeProject.samples.length > 0 && (
                 <div className="export-btns">
                   <button className="btn btn--green-sm" onClick={handleExportExcel} id="btn-export-excel">
                     📊 Excel
@@ -316,255 +187,138 @@ export default function App() {
               )}
             </div>
 
-            {/* ── Form Card ── */}
-            <section className="card" id="form-card">
-              <div className="card__header">
-                <div className="card__header-left">
-                  <span className="card__header-icon">📋</span>
-                  <h2 className="card__header-title">Yeni Ölçüm</h2>
-                </div>
-              </div>
+            {/* ── Inner Tabs ── */}
+            <div className="project-tabs">
+              <button 
+                className={`project-tab ${activeTab === 'master' ? 'project-tab--active' : ''}`}
+                onClick={() => setActiveTab('master')}
+              >
+                📊 Genel Tablo
+              </button>
+              <button 
+                className={`project-tab ${activeTab === 'calcimeter' ? 'project-tab--active' : ''}`}
+                onClick={() => setActiveTab('calcimeter')}
+              >
+                ⚗️ Kireç Ekle
+              </button>
+              <button 
+                className={`project-tab ${activeTab === 'texture' ? 'project-tab--active' : ''}`}
+                onClick={() => setActiveTab('texture')}
+              >
+                📐 Tekstür Ekle
+              </button>
+              <button 
+                className={`project-tab ${activeTab === 'tuz' ? 'project-tab--active' : ''}`}
+                onClick={() => setActiveTab('tuz')}
+              >
+                🧪 Tuz/ECe Ekle
+              </button>
+            </div>
 
-              <form onSubmit={handleSubmit} id="calcimeter-form">
-                <div className="form-grid">
-                  <div className="form-group">
-                    <label htmlFor="ornekNo">Örnek No</label>
-                    <input
-                      id="ornekNo"
-                      className="input"
-                      type="text"
-                      placeholder="T-001"
-                      value={ornekNo}
-                      onChange={(e) => setOrnekNo(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label htmlFor="agirlik">
-                      Ağırlık <span className="unit">(g)</span>
-                    </label>
-                    <input
-                      id="agirlik"
-                      className="input"
-                      type="number"
-                      step="any"
-                      min="0.001"
-                      placeholder="0.5"
-                      value={agirlik}
-                      onChange={(e) => setAgirlik(e.target.value)}
-                      required
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label htmlFor="sicaklik">
-                      Sıcaklık <span className="unit">(°C)</span>
-                    </label>
-                    <input
-                      id="sicaklik"
-                      className="input"
-                      type="number"
-                      step="any"
-                      placeholder="24"
-                      value={sicaklik}
-                      onChange={(e) => setSicaklik(e.target.value)}
-                      required
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label htmlFor="basinc">
-                      Basınç <span className="unit">({basincBirimi})</span>
-                    </label>
-                    <div className="input-inline">
-                      <input
-                        id="basinc"
-                        className="input"
-                        type="number"
-                        step="any"
-                        placeholder="759"
-                        value={basinc}
-                        onChange={(e) => setBasinc(e.target.value)}
-                        required
-                      />
-                      <select
-                        id="basincBirimi"
-                        className="input select"
-                        value={basincBirimi}
-                        onChange={(e) => setBasincBirimi(e.target.value as 'mmHg' | 'mbar')}
-                      >
-                        <option value="mmHg">mmHg</option>
-                        <option value="mbar">mbar</option>
-                      </select>
+            {/* ── Content ── */}
+            <div style={{ paddingTop: '1.5rem' }}>
+              {activeTab === 'master' && (
+                <section className="card">
+                  <div className="card__header">
+                    <div className="card__header-left">
+                      <span className="card__header-icon">📋</span>
+                      <h2 className="card__header-title">Örnekler ve Analiz Sonuçları</h2>
                     </div>
                   </div>
-
-                  <div className="form-group">
-                    <label htmlFor="okuma">
-                      Okuma <span className="unit">(cm³)</span>
-                    </label>
-                    <input
-                      id="okuma"
-                      className="input"
-                      type="number"
-                      step="any"
-                      min="0"
-                      placeholder="15"
-                      value={okuma}
-                      onChange={(e) => setOkuma(e.target.value)}
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="btn-row">
-                  <button type="submit" className="btn btn--primary" id="btn-calculate">
-                    Hesapla
-                  </button>
-                  <button type="button" className="btn btn--secondary" onClick={handleReset} id="btn-reset">
-                    Temizle
-                  </button>
-                </div>
-              </form>
-            </section>
-
-            {/* ── Alerts ── */}
-            {error && (
-              <div className="alert alert--error" style={{ marginTop: '0.75rem' }} id="error-alert">
-                <span className="alert__icon">⛔</span>
-                <span>{error}</span>
-              </div>
-            )}
-            {warnings.map((w, i) => (
-              <div className="alert alert--warning" style={{ marginTop: i === 0 ? '0.75rem' : '0.35rem' }} key={i}>
-                <span className="alert__icon">⚠️</span>
-                <span>{w.message}</span>
-              </div>
-            ))}
-
-            {/* ── Last Result ── */}
-            {lastResult && (
-              <section className="card" style={{ marginTop: '1.25rem' }} id="result-card">
-                <div className="card__header">
-                  <div className="card__header-left">
-                    <span className="card__header-icon">📊</span>
-                    <h2 className="card__header-title">Son Hesaplama — {lastResult.ornekNo}</h2>
-                  </div>
-                </div>
-
-                <div className="result-hero">
-                  <div className="result-hero__percentage" id="result-percentage">
-                    {lastResult.caco3Yuzde.toFixed(2)}<span className="pct">%</span>
-                  </div>
-                  <div>
-                    <span className={`result-hero__class ${classForSinif(lastResult.sinif)}`} id="result-class">
-                      {lastResult.sinif}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="result-summary">
-                  <div className="result-summary__item">
-                    <div className="result-summary__label">Buhar Basıncı (e)</div>
-                    <div className="result-summary__value">
-                      {lastResult.buharBasinci.toFixed(4)}
-                      <span className="result-summary__unit">mmHg</span>
+                  {activeProject.samples.length === 0 ? (
+                    <div className="history-empty">
+                      <span className="history-empty__icon">🔬</span>
+                      Bu projede henüz örnek yok. Yeni ölçüm eklemek için yukarıdaki sekmeleri kullanın.
                     </div>
-                  </div>
-                  <div className="result-summary__item">
-                    <div className="result-summary__label">Düzeltilmiş Hacim (V₀)</div>
-                    <div className="result-summary__value">
-                      {lastResult.duzeltilmisHacim.toFixed(4)}
-                      <span className="result-summary__unit">cm³</span>
+                  ) : (
+                    <div className="table-wrap">
+                      <table className="history-table master-table">
+                        <thead>
+                          <tr>
+                            <th>Örnek No</th>
+                            <th>% CaCO₃</th>
+                            <th>Kireç Sınıfı</th>
+                            <th>Kum-Silt-Kil (%)</th>
+                            <th>Tekstür Sınıfı</th>
+                            <th>% Toplam Tuz</th>
+                            <th>ECe (dS/m)</th>
+                            <th>Tuz Sınıfı (ECe)</th>
+                            <th>İşlem</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {activeProject.samples.map((s) => (
+                            <tr key={s.id}>
+                              <td style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{s.ornekNo}</td>
+                              
+                              {/* Kireç */}
+                              <td>{s.calcimeterResult ? `%${s.calcimeterResult.caco3Yuzde.toFixed(2)}` : '-'}</td>
+                              <td>{s.calcimeterResult ? <span className="badge class--orta">{s.calcimeterResult.sinif}</span> : '-'}</td>
+                              
+                              {/* Tekstür */}
+                              <td style={{ fontSize: '0.85rem' }}>
+                                {s.textureResult ? `${s.textureResult.sand.toFixed(0)} - ${s.textureResult.silt.toFixed(0)} - ${s.textureResult.clay.toFixed(0)}` : '-'}
+                              </td>
+                              <td>{s.textureResult ? <span className="badge class--kirecli">{s.textureResult.textureClassTR}</span> : '-'}</td>
+                              
+                              {/* Tuz */}
+                              <td>{s.tuzResult ? `%${s.tuzResult.saltPct.toFixed(2)}` : '-'}</td>
+                              <td style={{ color: 'var(--red-600)', fontWeight: 500 }}>{s.tuzResult ? s.tuzResult.ece.toFixed(1) : '-'}</td>
+                              <td>{s.tuzResult ? <span className="badge class--cok">{s.tuzResult.saltClassEce}</span> : '-'}</td>
+                              
+                              <td>
+                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                  <button
+                                    onClick={() => { setSelectedOrnekNo(s.ornekNo); setActiveTab('calcimeter'); }}
+                                    title="Analiz Ekle/Güncelle"
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem' }}
+                                  >✏️</button>
+                                  <button
+                                    onClick={() => handleDeleteSample(s.id)}
+                                    title="Örneği Tamamen Sil"
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--red-500)' }}
+                                  >✕</button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
-                  </div>
-                  <div className="result-summary__item">
-                    <div className="result-summary__label">Ağırlık</div>
-                    <div className="result-summary__value">
-                      {lastResult.agirlik}<span className="result-summary__unit">g</span>
-                    </div>
-                  </div>
-                  <div className="result-summary__item">
-                    <div className="result-summary__label">Basınç</div>
-                    <div className="result-summary__value">
-                      {lastResult.basincMmHg.toFixed(1)}
-                      <span className="result-summary__unit">mmHg</span>
-                    </div>
-                  </div>
-                </div>
-              </section>
-            )}
-
-            {/* ── History Table ── */}
-            <section className="card" style={{ marginTop: '1.25rem' }} id="history-card">
-              <div className="card__header">
-                <div className="card__header-left">
-                  <span className="card__header-icon">📜</span>
-                  <h2 className="card__header-title">Ölçüm Geçmişi</h2>
-                </div>
-                {activeProject.measurements.length > 0 && (
-                  <div className="export-btns">
-                    <button className="btn btn--outline-sm" onClick={handleExportCSV}>
-                      📥 CSV
-                    </button>
-                    <button className="btn btn--outline-sm" onClick={handleExportPDF}>
-                      📄 PDF
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {activeProject.measurements.length === 0 ? (
-                <div className="history-empty">
-                  <span className="history-empty__icon">🔬</span>
-                  Bu projede henüz ölçüm yok.
-                </div>
-              ) : (
-                <div className="table-wrap">
-                  <table className="history-table">
-                    <thead>
-                      <tr>
-                        <th>Örnek</th>
-                        <th>Tarih</th>
-                        <th>Ağırlık</th>
-                        <th>Sıcaklık</th>
-                        <th>Okuma</th>
-                        <th>% CaCO₃</th>
-                        <th>Sınıf</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {activeProject.measurements.map((m) => (
-                        <tr key={m.id}>
-                          <td style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{m.result.ornekNo}</td>
-                          <td>{formatDate(m.timestamp)}</td>
-                          <td>{m.result.agirlik} g</td>
-                          <td>{m.result.sicaklik}°C</td>
-                          <td>{m.result.okuma} cm³</td>
-                          <td style={{ color: 'var(--blue-600)', fontWeight: 600 }}>
-                            {m.result.caco3Yuzde.toFixed(2)}%
-                          </td>
-                          <td>
-                            <span className={`badge ${classForSinif(m.result.sinif)}`}>{m.result.sinif}</span>
-                          </td>
-                          <td>
-                            <button
-                              className="project-item__delete"
-                              style={{ opacity: 1, fontSize: '0.75rem' }}
-                              onClick={() => handleDeleteMeasurement(m.id)}
-                              title="Ölçümü sil"
-                            >
-                              ✕
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                  )}
+                </section>
               )}
-            </section>
+
+              {activeTab === 'calcimeter' && (
+                <CalcimeterPage 
+                  defaultOrnekNo={selectedOrnekNo}
+                  onSave={(r) => {
+                    setState(s => addOrUpdateSample(s, activeProject.id, 'calcimeter', r));
+                    setSelectedOrnekNo(r.ornekNo);
+                  }}
+                />
+              )}
+
+              {activeTab === 'texture' && (
+                <TexturePage 
+                  defaultOrnekNo={selectedOrnekNo}
+                  onSave={(r) => {
+                    setState(s => addOrUpdateSample(s, activeProject.id, 'texture', r));
+                    setSelectedOrnekNo(r.ornekNo);
+                  }}
+                />
+              )}
+
+              {activeTab === 'tuz' && (
+                <TuzPage 
+                  defaultOrnekNo={selectedOrnekNo}
+                  onSave={(r) => {
+                    setState(s => addOrUpdateSample(s, activeProject.id, 'tuz', r));
+                    setSelectedOrnekNo(r.ornekNo);
+                  }}
+                />
+              )}
+            </div>
           </>
         )}
       </main>

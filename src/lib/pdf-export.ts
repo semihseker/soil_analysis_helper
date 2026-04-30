@@ -49,9 +49,7 @@ export async function exportProjectPDF(project: Project): Promise<void> {
   doc.text('Toprak Bilimi ve Bitki Besleme Bolumu', pageWidth / 2, 18, { align: 'center', maxWidth: titleMaxW });
   doc.text('Analiz Laboratuvari', pageWidth / 2, 23, { align: 'center', maxWidth: titleMaxW });
 
-  const isKirec = project.type === 'kirec';
-  const isTuz = project.type === 'tuz';
-  const reportTitle = isKirec ? 'Kirec (CaCO3) Tayini Raporu' : isTuz ? 'Toplam Tuz ve ECe Tayini Raporu' : 'Toprak Tekstur Analizi Raporu';
+  const reportTitle = 'Toprak Analiz Sonuclari (Kirec, Tekstur, Tuz)';
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
@@ -62,67 +60,35 @@ export async function exportProjectPDF(project: Project): Promise<void> {
   doc.setFontSize(9);
   doc.setTextColor(80, 80, 80);
   doc.text(`Proje: ${project.name}`, 14, 36);
-  doc.text(`Toplam Olcum: ${project.measurements.length}`, pageWidth - 14, 36, { align: 'right' });
+  doc.text(`Toplam Ornek: ${project.samples.length}`, pageWidth - 14, 36, { align: 'right' });
 
   doc.setDrawColor(200, 200, 210);
   doc.setLineWidth(0.3);
   doc.line(14, 38, pageWidth - 14, 38);
 
-  let headers: string[];
-  let rows: any[][];
+  const headers = [
+    'Ornek No', 'Guncelleme Tarihi', 
+    '% CaCO3', 'Kirec Sinifi', 
+    'Kum-Silt-Kil (%)', 'Tekstur Sinifi', 
+    '% Toplam Tuz', 'ECe (dS/m)', 'Tuz Sinifi'
+  ];
 
-  if (isKirec) {
-    headers = ['Ornek No', 'Tarih', 'Agirlik (g)', 'Sicaklik (°C)', 'Basinc (mmHg)', 'Okuma (cm3)', 'Buhar Bas. (e)', 'Duz. Hacim (V0)', '% CaCO3', 'Sinif'];
-    rows = project.measurements.map((m) => {
-      const r = m.result;
-      const d = new Date(m.timestamp);
-      return [
-        r.ornekNo,
-        d.toLocaleDateString('tr-TR') + ' ' + d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }),
-        r.agirlik.toString(),
-        r.sicaklik.toString(),
-        r.basincMmHg.toFixed(1),
-        r.okuma.toString(),
-        r.buharBasinci.toFixed(4),
-        r.duzeltilmisHacim.toFixed(4),
-        r.caco3Yuzde.toFixed(2),
-        r.sinif,
-      ];
-    });
-  } else if (project.type === 'tekstur') {
-    headers = ['Ornek No', 'Tarih', 'Kum (%)', 'Silt (%)', 'Kil (%)', 'Sinif (TR)', 'Sinif (EN)'];
-    rows = project.measurements.map((m) => {
-      const r = m.result;
-      const d = new Date(m.timestamp);
-      return [
-        r.ornekNo,
-        d.toLocaleDateString('tr-TR') + ' ' + d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }),
-        r.sand.toFixed(2),
-        r.silt.toFixed(2),
-        r.clay.toFixed(2),
-        r.textureClassTR,
-        r.textureClass,
-      ];
-    });
-  } else {
-    headers = ['Ornek No', 'Tarih', 'Sicaklik (°C)', 'Saturasyon (cm3)', 'Direnc (Ohm)', '% Toplam Tuz', 'Tuz Sinifi (%)', 'ECe (dS/m)', 'Tuz Sinifi (ECe)', 'Uygun Bitkiler'];
-    rows = project.measurements.map((m) => {
-      const r = m.result;
-      const d = new Date(m.timestamp);
-      return [
-        r.ornekNo,
-        d.toLocaleDateString('tr-TR') + ' ' + d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }),
-        r.temperature.toString(),
-        r.saturation.toString(),
-        r.resistance.toString(),
-        r.saltPct.toFixed(2),
-        r.saltClassPct,
-        r.ece.toFixed(1),
-        r.saltClassEce,
-        r.suitableCrops,
-      ];
-    });
-  }
+  const rows = project.samples.map((s) => {
+    const d = new Date(s.timestamp);
+    const dateFormatted = d.toLocaleDateString('tr-TR') + ' ' + d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+    
+    return [
+      s.ornekNo,
+      dateFormatted,
+      s.calcimeterResult ? `%${s.calcimeterResult.caco3Yuzde.toFixed(2)}` : '-',
+      s.calcimeterResult ? s.calcimeterResult.sinif : '-',
+      s.textureResult ? `${s.textureResult.sand.toFixed(0)}-${s.textureResult.silt.toFixed(0)}-${s.textureResult.clay.toFixed(0)}` : '-',
+      s.textureResult ? s.textureResult.textureClassTR : '-',
+      s.tuzResult ? `%${s.tuzResult.saltPct.toFixed(2)}` : '-',
+      s.tuzResult ? s.tuzResult.ece.toFixed(1) : '-',
+      s.tuzResult ? s.tuzResult.saltClassEce : '-',
+    ];
+  });
 
   autoTable(doc, {
     startY: 42,
@@ -133,18 +99,21 @@ export async function exportProjectPDF(project: Project): Promise<void> {
     headStyles: { fillColor: [30, 41, 82], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5, halign: 'center' },
     bodyStyles: { textColor: [40, 40, 50], halign: 'center' },
     alternateRowStyles: { fillColor: [245, 246, 250] },
-    columnStyles: isKirec 
-      ? { 0: { halign: 'left', fontStyle: 'bold' }, 1: { halign: 'center' }, 8: { fontStyle: 'bold', textColor: [74, 124, 222] }, 9: { halign: 'left' } }
-      : isTuz
-      ? { 0: { halign: 'left', fontStyle: 'bold' }, 1: { halign: 'center' }, 5: { fontStyle: 'bold', textColor: [74, 124, 222] }, 7: { fontStyle: 'bold', textColor: [220, 53, 69] } }
-      : { 0: { halign: 'left', fontStyle: 'bold' }, 1: { halign: 'center' }, 5: { fontStyle: 'bold', textColor: [74, 124, 222] } },
+    columnStyles: { 
+      0: { halign: 'left', fontStyle: 'bold' }, 
+      2: { fontStyle: 'bold', textColor: [74, 124, 222] }, // Kirec %
+      4: { halign: 'center', textColor: [100, 100, 100] }, // Kum-Silt-Kil
+      5: { fontStyle: 'bold', textColor: [34, 139, 34] }, // Tekstur
+      6: { fontStyle: 'bold', textColor: [220, 53, 69] }, // Tuz %
+      7: { fontStyle: 'bold', textColor: [220, 53, 69] }, // ECe
+    },
     margin: { left: 14, right: 14 },
     didDrawPage: (data) => {
       const pageNum = doc.getCurrentPageInfo().pageNumber;
       doc.setFontSize(7.5);
       doc.setTextColor(150, 150, 150);
       doc.text(`Sayfa ${pageNum}`, pageWidth / 2, pageHeight - 8, { align: 'center' });
-      doc.text(isKirec ? 'Scheibler Kalsimetre Yontemi' : isTuz ? 'Ohmmeter Elektriksel Direnc Yontemi' : 'USDA Toprak Tekstur Ucgeni', 14, pageHeight - 8);
+      doc.text('Analiz Raporu', 14, pageHeight - 8);
       doc.text(dateStr, pageWidth - 14, pageHeight - 8, { align: 'right' });
 
       if (data.pageNumber > 1) {
@@ -160,5 +129,5 @@ export async function exportProjectPDF(project: Project): Promise<void> {
   });
 
   const safeName = project.name.replace(/[^a-zA-Z0-9ğüşıöçĞÜŞİÖÇ_\- ]/g, '').replace(/\s+/g, '_');
-  doc.save(`${safeName}_Raporu.pdf`);
+  doc.save(`${safeName}_Tum_Analizler.pdf`);
 }
