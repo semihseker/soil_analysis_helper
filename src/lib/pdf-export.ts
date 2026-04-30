@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type { Project } from './store';
+import { robotoRegularBase64 } from './fonts/Roboto-Regular';
 
 async function loadLogoAsBase64(): Promise<string> {
   const response = await fetch('/logo.png');
@@ -18,6 +19,10 @@ export async function exportProjectPDF(project: Project): Promise<void> {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
 
+  doc.addFileToVFS('Roboto-Regular.ttf', robotoRegularBase64);
+  doc.addFont('Roboto-Regular.ttf', 'Roboto', 'normal');
+  doc.addFont('Roboto-Regular.ttf', 'Roboto', 'bold'); // Using the same regular font for bold to keep file size small
+
   let logoLoaded = false;
   try {
     const logoBase64 = await loadLogoAsBase64();
@@ -29,7 +34,7 @@ export async function exportProjectPDF(project: Project): Promise<void> {
   const dateStr = now.toLocaleDateString('tr-TR', { day: '2-digit', month: 'long', year: 'numeric' });
   const timeStr = now.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
 
-  doc.setFont('helvetica', 'normal');
+  doc.setFont('Roboto', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(100, 100, 100);
   doc.text(`${dateStr}`, pageWidth - 14, 14, { align: 'right' });
@@ -38,39 +43,39 @@ export async function exportProjectPDF(project: Project): Promise<void> {
   const titleX = logoLoaded ? 40 : 14;
   const titleMaxW = pageWidth - titleX - 50;
 
-  doc.setFont('helvetica', 'bold');
+  doc.setFont('Roboto', 'bold');
   doc.setFontSize(13);
   doc.setTextColor(30, 41, 82);
-  doc.text('Eskisehir Osmangazi Universitesi', pageWidth / 2, 12, { align: 'center', maxWidth: titleMaxW });
+  doc.text('Eskişehir Osmangazi Üniversitesi', pageWidth / 2, 12, { align: 'center', maxWidth: titleMaxW });
 
   doc.setFontSize(10);
-  doc.setFont('helvetica', 'normal');
+  doc.setFont('Roboto', 'normal');
   doc.setTextColor(60, 70, 100);
-  doc.text('Toprak Bilimi ve Bitki Besleme Bolumu', pageWidth / 2, 18, { align: 'center', maxWidth: titleMaxW });
-  doc.text('Analiz Laboratuvari', pageWidth / 2, 23, { align: 'center', maxWidth: titleMaxW });
+  doc.text('Toprak Bilimi ve Bitki Besleme Bölümü', pageWidth / 2, 18, { align: 'center', maxWidth: titleMaxW });
+  doc.text('Analiz Laboratuvarı', pageWidth / 2, 23, { align: 'center', maxWidth: titleMaxW });
 
-  const reportTitle = 'Toprak Analiz Sonuclari (Kirec, Tekstur, Tuz)';
+  const reportTitle = 'Toprak Analiz Sonuçları (Kireç, Tekstür, Tuz)';
 
-  doc.setFont('helvetica', 'bold');
+  doc.setFont('Roboto', 'bold');
   doc.setFontSize(11);
   doc.setTextColor(30, 41, 82);
   doc.text(reportTitle, pageWidth / 2, 30, { align: 'center' });
 
-  doc.setFont('helvetica', 'normal');
+  doc.setFont('Roboto', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(80, 80, 80);
   doc.text(`Proje: ${project.name}`, 14, 36);
-  doc.text(`Toplam Ornek: ${project.samples.length}`, pageWidth - 14, 36, { align: 'right' });
+  doc.text(`Toplam Örnek: ${project.samples.length}`, pageWidth - 14, 36, { align: 'right' });
 
   doc.setDrawColor(200, 200, 210);
   doc.setLineWidth(0.3);
   doc.line(14, 38, pageWidth - 14, 38);
 
   const headers = [
-    'Ornek No', 'Guncelleme Tarihi', 
-    '% CaCO3', 'Kirec Sinifi', 
-    'Kum-Silt-Kil (%)', 'Tekstur Sinifi', 
-    '% Toplam Tuz', 'ECe (dS/m)', 'Tuz Sinifi'
+    'Örnek No', 'Güncelleme Tarihi', 
+    '% CaCO3', 'Kireç Sınıfı', 
+    'Kum-Silt-Kil (%)', 'Tekstür Sınıfı', 
+    '% Toplam Tuz', 'ECe (dS/m)', 'Tuz Sınıfı'
   ];
 
   const rows = project.samples.map((s) => {
@@ -95,7 +100,7 @@ export async function exportProjectPDF(project: Project): Promise<void> {
     head: [headers],
     body: rows,
     theme: 'grid',
-    styles: { font: 'helvetica', fontSize: 8, cellPadding: 2.5, lineColor: [200, 200, 210], lineWidth: 0.2 },
+    styles: { font: 'Roboto', fontSize: 8, cellPadding: 2.5, lineColor: [200, 200, 210], lineWidth: 0.2 },
     headStyles: { fillColor: [30, 41, 82], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5, halign: 'center' },
     bodyStyles: { textColor: [40, 40, 50], halign: 'center' },
     alternateRowStyles: { fillColor: [245, 246, 250] },
@@ -117,7 +122,7 @@ export async function exportProjectPDF(project: Project): Promise<void> {
       doc.text(dateStr, pageWidth - 14, pageHeight - 8, { align: 'right' });
 
       if (data.pageNumber > 1) {
-        doc.setFont('helvetica', 'bold');
+        doc.setFont('Roboto', 'bold');
         doc.setFontSize(9);
         doc.setTextColor(30, 41, 82);
         doc.text(reportTitle, 14, 10);
@@ -129,5 +134,5 @@ export async function exportProjectPDF(project: Project): Promise<void> {
   });
 
   const safeName = project.name.replace(/[^a-zA-Z0-9ğüşıöçĞÜŞİÖÇ_\- ]/g, '').replace(/\s+/g, '_');
-  doc.save(`${safeName}_Tum_Analizler.pdf`);
+  doc.save(`${safeName}_Tüm_Analizler.pdf`);
 }
