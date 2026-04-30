@@ -89,7 +89,7 @@ export async function exportProjectPDF(project: Project): Promise<void> {
         r.sinif,
       ];
     });
-  } else {
+  } else if (project.type === 'tekstur') {
     headers = ['Ornek No', 'Tarih', 'Kum (%)', 'Silt (%)', 'Kil (%)', 'Sinif (TR)', 'Sinif (EN)'];
     rows = project.measurements.map((m) => {
       const r = m.result;
