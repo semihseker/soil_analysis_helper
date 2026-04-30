@@ -130,6 +130,41 @@ body {
   margin-top: 0.1rem;
 }
 
+/* Sidebar: Tab Navigation */
+.sidebar__tabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.sidebar__tab {
+  flex: 1;
+  padding: 0.5rem 0.4rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 150ms ease;
+  text-align: center;
+}
+
+.sidebar__tab:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.sidebar__tab--active {
+  background: var(--blue-50);
+  color: var(--blue-600);
+  font-weight: 600;
+  border-color: var(--blue-100);
+}
+
 /* Sidebar: New Project */
 .sidebar__new-project {
   padding: 0.75rem 1.25rem;

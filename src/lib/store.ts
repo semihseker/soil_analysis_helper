@@ -1,9 +1,13 @@
 import type { CalcimeterResult } from './calcimeter';
+import type { TextureResult } from './soil-texture';
+import * as XLSX from 'xlsx';
 
 /* ─── Types ─── */
-export interface MeasurementEntry {
+export type ProjectType = 'kirec' | 'tekstur';
+
+export interface MeasurementEntry<T = any> {
   id: string;
-  result: CalcimeterResult;
+  result: T;
   timestamp: string; // ISO string
 }
 
@@ -11,12 +15,14 @@ export interface Project {
   id: string;
   name: string;
   createdAt: string;
-  measurements: MeasurementEntry[];
+  type: ProjectType;
+  measurements: MeasurementEntry<any>[];
 }
 
 export interface AppState {
   projects: Project[];
-  activeProjectId: string | null;
+  activeProjectId: string | null; // For kirec
+  activeTextureProjectId: string | null; // For tekstur
 }
 
 const STORAGE_KEY = 'calcimeter_app_state';
@@ -30,9 +36,21 @@ function genId(): string {
 export function loadState(): AppState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as AppState;
+    if (raw) {
+      const parsed = JSON.parse(raw) as any;
+      // Backwards compatibility
+      const projects = (parsed.projects || []).map((p: any) => ({
+        ...p,
+        type: p.type || 'kirec',
+      }));
+      return {
+        projects,
+        activeProjectId: parsed.activeProjectId || null,
+        activeTextureProjectId: parsed.activeTextureProjectId || null,
+      };
+    }
   } catch { /* ignore */ }
-  return { projects: [], activeProjectId: null };
+  return { projects: [], activeProjectId: null, activeTextureProjectId: null };
 }
 
 export function saveState(state: AppState): void {
@@ -40,29 +58,39 @@ export function saveState(state: AppState): void {
 }
 
 /* ─── Project Operations ─── */
-export function createProject(state: AppState, name: string): AppState {
+export function createProject(state: AppState, name: string, type: ProjectType): AppState {
   const project: Project = {
     id: genId(),
     name,
     createdAt: new Date().toISOString(),
+    type,
     measurements: [],
   };
   return {
+    ...state,
     projects: [...state.projects, project],
-    activeProjectId: project.id,
+    ...(type === 'kirec' ? { activeProjectId: project.id } : { activeTextureProjectId: project.id }),
   };
 }
 
 export function deleteProject(state: AppState, projectId: string): AppState {
+  const projectToDelete = state.projects.find((p) => p.id === projectId);
   const projects = state.projects.filter((p) => p.id !== projectId);
-  const activeProjectId =
-    state.activeProjectId === projectId
-      ? (projects.length > 0 ? projects[0].id : null)
-      : state.activeProjectId;
-  return { projects, activeProjectId };
+  
+  let { activeProjectId, activeTextureProjectId } = state;
+  
+  if (projectToDelete?.type === 'kirec' && activeProjectId === projectId) {
+    const remaining = projects.filter(p => p.type === 'kirec');
+    activeProjectId = remaining.length > 0 ? remaining[0].id : null;
+  } else if (projectToDelete?.type === 'tekstur' && activeTextureProjectId === projectId) {
+    const remaining = projects.filter(p => p.type === 'tekstur');
+    activeTextureProjectId = remaining.length > 0 ? remaining[0].id : null;
+  }
+
+  return { projects, activeProjectId, activeTextureProjectId };
 }
 
-export function addMeasurement(state: AppState, projectId: string, result: CalcimeterResult): AppState {
+export function addMeasurement(state: AppState, projectId: string, result: any): AppState {
   const entry: MeasurementEntry = {
     id: genId(),
     result,
@@ -87,44 +115,55 @@ export function deleteMeasurement(state: AppState, projectId: string, measuremen
   };
 }
 
+/* ─── Active Project Helper ─── */
+export function getActiveProject(state: AppState, type: ProjectType): Project | null {
+  const activeId = type === 'kirec' ? state.activeProjectId : state.activeTextureProjectId;
+  if (!activeId) return null;
+  return state.projects.find((p) => p.id === activeId) ?? null;
+}
+
+export function setActiveProject(state: AppState, projectId: string, type: ProjectType): AppState {
+  return {
+    ...state,
+    ...(type === 'kirec' ? { activeProjectId: projectId } : { activeTextureProjectId: projectId }),
+  };
+}
+
 /* ─── CSV Export ─── */
 export function exportProjectCSV(project: Project): string {
-  const headers = [
-    'Örnek No',
-    'Tarih',
-    'Ağırlık (g)',
-    'Sıcaklık (°C)',
-    'Basınç (mmHg)',
-    'Okuma (cm³)',
-    'Buhar Basıncı (mmHg)',
-    'Düzeltilmiş Hacim (cm³)',
-    '% CaCO3',
-    'Sınıf',
-  ];
+  let headers: string[];
+  let rows: string[];
 
-  const rows = project.measurements.map((m) => {
-    const r = m.result;
-    const date = new Date(m.timestamp);
-    const dateStr = date.toLocaleDateString('tr-TR') + ' ' + date.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
-    return [
-      r.ornekNo,
-      dateStr,
-      r.agirlik,
-      r.sicaklik,
-      r.basincMmHg.toFixed(1),
-      r.okuma,
-      r.buharBasinci.toFixed(4),
-      r.duzeltilmisHacim.toFixed(4),
-      r.caco3Yuzde.toFixed(2),
-      r.sinif,
-    ].join(';');
-  });
+  if (project.type === 'kirec') {
+    headers = [
+      'Örnek No', 'Tarih', 'Ağırlık (g)', 'Sıcaklık (°C)', 'Basınç (mmHg)',
+      'Okuma (cm³)', 'Buhar Basıncı (mmHg)', 'Düzeltilmiş Hacim (cm³)', '% CaCO3', 'Sınıf'
+    ];
+    rows = project.measurements.map((m) => {
+      const r = m.result as CalcimeterResult;
+      const dateStr = new Date(m.timestamp).toLocaleString('tr-TR');
+      return [
+        r.ornekNo, dateStr, r.agirlik, r.sicaklik, r.basincMmHg.toFixed(1),
+        r.okuma, r.buharBasinci.toFixed(4), r.duzeltilmisHacim.toFixed(4),
+        r.caco3Yuzde.toFixed(2), r.sinif
+      ].join(';');
+    });
+  } else {
+    headers = ['Örnek No', 'Tarih', 'Kum (%)', 'Silt (%)', 'Kil (%)', 'Sınıf (TR)', 'Sınıf (EN)'];
+    rows = project.measurements.map((m) => {
+      const r = m.result as TextureResult;
+      const dateStr = new Date(m.timestamp).toLocaleString('tr-TR');
+      return [
+        r.ornekNo, dateStr, r.sand.toFixed(2), r.silt.toFixed(2), r.clay.toFixed(2),
+        r.textureClassTR, r.textureClass
+      ].join(';');
+    });
+  }
 
   return [headers.join(';'), ...rows].join('\n');
 }
 
 export function downloadCSV(csv: string, filename: string): void {
-  // BOM for Excel Turkish character support
   const bom = '\uFEFF';
   const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
@@ -135,8 +174,43 @@ export function downloadCSV(csv: string, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-/* ─── Active Project Helper ─── */
-export function getActiveProject(state: AppState): Project | null {
-  if (!state.activeProjectId) return null;
-  return state.projects.find((p) => p.id === state.activeProjectId) ?? null;
+/* ─── Excel (XLSX) Export ─── */
+export function exportProjectExcel(project: Project): void {
+  let data: any[];
+
+  if (project.type === 'kirec') {
+    data = project.measurements.map((m) => {
+      const r = m.result as CalcimeterResult;
+      return {
+        'Örnek No': r.ornekNo,
+        'Tarih': new Date(m.timestamp).toLocaleString('tr-TR'),
+        'Ağırlık (g)': r.agirlik,
+        'Sıcaklık (°C)': r.sicaklik,
+        'Basınç (mmHg)': Number(r.basincMmHg.toFixed(1)),
+        'Okuma (cm³)': r.okuma,
+        'Buhar Basıncı (mmHg)': Number(r.buharBasinci.toFixed(4)),
+        'Düzeltilmiş Hacim (cm³)': Number(r.duzeltilmisHacim.toFixed(4)),
+        '% CaCO3': Number(r.caco3Yuzde.toFixed(2)),
+        'Sınıf': r.sinif,
+      };
+    });
+  } else {
+    data = project.measurements.map((m) => {
+      const r = m.result as TextureResult;
+      return {
+        'Örnek No': r.ornekNo,
+        'Tarih': new Date(m.timestamp).toLocaleString('tr-TR'),
+        'Kum (%)': Number(r.sand.toFixed(2)),
+        'Silt (%)': Number(r.silt.toFixed(2)),
+        'Kil (%)': Number(r.clay.toFixed(2)),
+        'Sınıf (TR)': r.textureClassTR,
+        'Sınıf (EN)': r.textureClass,
+      };
+    });
+  }
+
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Analiz Sonucları");
+  XLSX.writeFile(wb, `${project.name}.xlsx`);
 }

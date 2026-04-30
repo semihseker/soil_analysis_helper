@@ -14,12 +14,17 @@ import {
   addMeasurement,
   deleteMeasurement,
   getActiveProject,
+  setActiveProject,
   exportProjectCSV,
+  exportProjectExcel,
   downloadCSV,
   type AppState,
 } from './lib/store';
 import { exportProjectPDF } from './lib/pdf-export';
+import TexturePage from './TexturePage';
 import './index.css';
+
+type TabId = 'kirec' | 'tekstur';
 
 /* ─── Helpers ─── */
 function classForSinif(sinif: string): string {
@@ -38,6 +43,7 @@ function formatDate(iso: string): string {
 export default function App() {
   /* ─── App State ─── */
   const [state, setState] = useState<AppState>(() => loadState());
+  const [activeTab, setActiveTab] = useState<TabId>('kirec');
   const [showNewProject, setShowNewProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -45,7 +51,7 @@ export default function App() {
   // Persist
   useEffect(() => { saveState(state); }, [state]);
 
-  const activeProject = getActiveProject(state);
+  const activeProject = getActiveProject(state, activeTab);
 
   /* ─── Form State ─── */
   const [ornekNo, setOrnekNo] = useState('');
@@ -63,11 +69,11 @@ export default function App() {
   const handleCreateProject = useCallback(() => {
     const name = newProjectName.trim();
     if (!name) return;
-    setState((s) => createProject(s, name));
+    setState((s) => createProject(s, name, activeTab));
     setNewProjectName('');
     setShowNewProject(false);
     setLastResult(null);
-  }, [newProjectName]);
+  }, [newProjectName, activeTab]);
 
   const handleDeleteProject = useCallback((id: string) => {
     setState((s) => deleteProject(s, id));
@@ -76,11 +82,11 @@ export default function App() {
   }, []);
 
   const handleSelectProject = useCallback((id: string) => {
-    setState((s) => ({ ...s, activeProjectId: id }));
+    setState((s) => setActiveProject(s, id, activeTab));
     setLastResult(null);
     setError(null);
     setWarnings([]);
-  }, []);
+  }, [activeTab]);
 
   /* ─── Form Handlers ─── */
   const handleReset = useCallback(() => {
@@ -148,12 +154,18 @@ export default function App() {
     if (!activeProject || activeProject.measurements.length === 0) return;
     const csv = exportProjectCSV(activeProject);
     const safeName = activeProject.name.replace(/[^a-zA-Z0-9ğüşıöçĞÜŞİÖÇ_\- ]/g, '').replace(/\s+/g, '_');
-    downloadCSV(csv, `${safeName}_CaCO3_sonuclari.csv`);
-  }, [activeProject]);
+    const suffix = activeTab === 'kirec' ? 'CaCO3_sonuclari' : 'Tekstur_sonuclari';
+    downloadCSV(csv, `${safeName}_${suffix}.csv`);
+  }, [activeProject, activeTab]);
 
   const handleExportPDF = useCallback(async () => {
     if (!activeProject || activeProject.measurements.length === 0) return;
     await exportProjectPDF(activeProject);
+  }, [activeProject]);
+
+  const handleExportExcel = useCallback(() => {
+    if (!activeProject || activeProject.measurements.length === 0) return;
+    exportProjectExcel(activeProject);
   }, [activeProject]);
 
   /* ─── Render ─── */
@@ -167,9 +179,25 @@ export default function App() {
             <div className="sidebar__brand-text">
               <div className="sidebar__brand-name">Eskişehir Osmangazi Üniversitesi</div>
               <div className="sidebar__brand-dept">Toprak Bilimi ve Bitki Besleme Bölümü</div>
-              <div className="sidebar__brand-lab">Analiz Laboratuvarı — Kireç Tayini</div>
+              <div className="sidebar__brand-lab">Analiz Laboratuvarı</div>
             </div>
           </div>
+        </div>
+
+        {/* ── Tab Navigation ── */}
+        <div className="sidebar__tabs">
+          <button
+            className={`sidebar__tab ${activeTab === 'kirec' ? 'sidebar__tab--active' : ''}`}
+            onClick={() => setActiveTab('kirec')}
+          >
+            ⚗️ Kireç Tayini
+          </button>
+          <button
+            className={`sidebar__tab ${activeTab === 'tekstur' ? 'sidebar__tab--active' : ''}`}
+            onClick={() => setActiveTab('tekstur')}
+          >
+            📐 Tekstür Üçgeni
+          </button>
         </div>
 
         <div className="sidebar__new-project">
@@ -182,17 +210,17 @@ export default function App() {
           </button>
         </div>
 
-        <div className="sidebar__projects">
+        <div className="sidebar__projects" style={{ display: activeTab === 'kirec' || activeTab === 'tekstur' ? undefined : 'none' }}>
           <div className="sidebar__section-label">Projeler</div>
-          {state.projects.length === 0 && (
+          {state.projects.filter(p => p.type === activeTab).length === 0 && (
             <div style={{ padding: '1rem 1.25rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
               Henüz proje yok.
             </div>
           )}
-          {state.projects.map((p) => (
+          {state.projects.filter(p => p.type === activeTab).map((p) => (
             <div
               key={p.id}
-              className={`project-item ${p.id === state.activeProjectId ? 'project-item--active' : ''}`}
+              className={`project-item ${(activeTab === 'kirec' ? state.activeProjectId : state.activeTextureProjectId) === p.id ? 'project-item--active' : ''}`}
               onClick={() => handleSelectProject(p.id)}
             >
               <span className="project-item__icon">📁</span>
@@ -237,6 +265,15 @@ export default function App() {
               Sol panelden "Yeni Proje" butonuna tıklayın.
             </div>
           </div>
+        ) : activeTab === 'tekstur' ? (
+          <TexturePage
+            project={activeProject}
+            onAddMeasurement={(r) => setState((s) => addMeasurement(s, activeProject.id, r))}
+            onDeleteMeasurement={handleDeleteMeasurement}
+            onExportPDF={handleExportPDF}
+            onExportCSV={handleExportCSV}
+            onExportExcel={handleExportExcel}
+          />
         ) : (
           <>
             {/* ── Title ── */}
@@ -249,6 +286,9 @@ export default function App() {
               </h1>
               {activeProject.measurements.length > 0 && (
                 <div className="export-btns">
+                  <button className="btn btn--green-sm" onClick={handleExportExcel} id="btn-export-excel">
+                    📊 Excel
+                  </button>
                   <button className="btn btn--green-sm" onClick={handleExportCSV} id="btn-export-csv">
                     📥 CSV
                   </button>
