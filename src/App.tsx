@@ -22,9 +22,10 @@ import {
 } from './lib/store';
 import { exportProjectPDF } from './lib/pdf-export';
 import TexturePage from './TexturePage';
+import TuzPage from './TuzPage';
 import './index.css';
 
-type TabId = 'kirec' | 'tekstur';
+type TabId = 'kirec' | 'tekstur' | 'tuz';
 
 /* ─── Helpers ─── */
 function classForSinif(sinif: string): string {
@@ -154,7 +155,7 @@ export default function App() {
     if (!activeProject || activeProject.measurements.length === 0) return;
     const csv = exportProjectCSV(activeProject);
     const safeName = activeProject.name.replace(/[^a-zA-Z0-9ğüşıöçĞÜŞİÖÇ_\- ]/g, '').replace(/\s+/g, '_');
-    const suffix = activeTab === 'kirec' ? 'CaCO3_sonuclari' : 'Tekstur_sonuclari';
+    const suffix = activeTab === 'kirec' ? 'CaCO3_sonuclari' : activeTab === 'tekstur' ? 'Tekstur_sonuclari' : 'Tuz_sonuclari';
     downloadCSV(csv, `${safeName}_${suffix}.csv`);
   }, [activeProject, activeTab]);
 
@@ -198,6 +199,13 @@ export default function App() {
           >
             📐 Tekstür Üçgeni
           </button>
+          <button
+            className={`sidebar__tab ${activeTab === 'tuz' ? 'sidebar__tab--active' : ''}`}
+            onClick={() => setActiveTab('tuz')}
+            title="Tuz ve ECe Tayini"
+          >
+            ⚗️ Tuz Tayini
+          </button>
         </div>
 
         <div className="sidebar__new-project">
@@ -210,7 +218,7 @@ export default function App() {
           </button>
         </div>
 
-        <div className="sidebar__projects" style={{ display: activeTab === 'kirec' || activeTab === 'tekstur' ? undefined : 'none' }}>
+        <div className="sidebar__projects" style={{ display: activeTab === 'kirec' || activeTab === 'tekstur' || activeTab === 'tuz' ? undefined : 'none' }}>
           <div className="sidebar__section-label">Projeler</div>
           {state.projects.filter(p => p.type === activeTab).length === 0 && (
             <div style={{ padding: '1rem 1.25rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
@@ -220,7 +228,7 @@ export default function App() {
           {state.projects.filter(p => p.type === activeTab).map((p) => (
             <div
               key={p.id}
-              className={`project-item ${(activeTab === 'kirec' ? state.activeProjectId : state.activeTextureProjectId) === p.id ? 'project-item--active' : ''}`}
+              className={`project-item ${(activeTab === 'kirec' ? state.activeProjectId : activeTab === 'tekstur' ? state.activeTextureProjectId : state.activeTuzProjectId) === p.id ? 'project-item--active' : ''}`}
               onClick={() => handleSelectProject(p.id)}
             >
               <span className="project-item__icon">📁</span>
@@ -267,6 +275,15 @@ export default function App() {
           </div>
         ) : activeTab === 'tekstur' ? (
           <TexturePage
+            project={activeProject}
+            onAddMeasurement={(r) => setState((s) => addMeasurement(s, activeProject.id, r))}
+            onDeleteMeasurement={handleDeleteMeasurement}
+            onExportPDF={handleExportPDF}
+            onExportCSV={handleExportCSV}
+            onExportExcel={handleExportExcel}
+          />
+        ) : activeTab === 'tuz' ? (
+          <TuzPage
             project={activeProject}
             onAddMeasurement={(r) => setState((s) => addMeasurement(s, activeProject.id, r))}
             onDeleteMeasurement={handleDeleteMeasurement}

@@ -1,9 +1,10 @@
 import type { CalcimeterResult } from './calcimeter';
 import type { TextureResult } from './soil-texture';
+import type { TuzResult } from './tuz';
 import * as XLSX from 'xlsx';
 
 /* ─── Types ─── */
-export type ProjectType = 'kirec' | 'tekstur';
+export type ProjectType = 'kirec' | 'tekstur' | 'tuz';
 
 export interface MeasurementEntry<T = any> {
   id: string;
@@ -23,6 +24,7 @@ export interface AppState {
   projects: Project[];
   activeProjectId: string | null; // For kirec
   activeTextureProjectId: string | null; // For tekstur
+  activeTuzProjectId: string | null; // For tuz
 }
 
 const STORAGE_KEY = 'calcimeter_app_state';
@@ -47,10 +49,11 @@ export function loadState(): AppState {
         projects,
         activeProjectId: parsed.activeProjectId || null,
         activeTextureProjectId: parsed.activeTextureProjectId || null,
+        activeTuzProjectId: parsed.activeTuzProjectId || null,
       };
     }
   } catch { /* ignore */ }
-  return { projects: [], activeProjectId: null, activeTextureProjectId: null };
+  return { projects: [], activeProjectId: null, activeTextureProjectId: null, activeTuzProjectId: null };
 }
 
 export function saveState(state: AppState): void {
@@ -69,7 +72,7 @@ export function createProject(state: AppState, name: string, type: ProjectType):
   return {
     ...state,
     projects: [...state.projects, project],
-    ...(type === 'kirec' ? { activeProjectId: project.id } : { activeTextureProjectId: project.id }),
+    ...(type === 'kirec' ? { activeProjectId: project.id } : type === 'tekstur' ? { activeTextureProjectId: project.id } : { activeTuzProjectId: project.id }),
   };
 }
 
@@ -77,7 +80,7 @@ export function deleteProject(state: AppState, projectId: string): AppState {
   const projectToDelete = state.projects.find((p) => p.id === projectId);
   const projects = state.projects.filter((p) => p.id !== projectId);
   
-  let { activeProjectId, activeTextureProjectId } = state;
+  let { activeProjectId, activeTextureProjectId, activeTuzProjectId } = state;
   
   if (projectToDelete?.type === 'kirec' && activeProjectId === projectId) {
     const remaining = projects.filter(p => p.type === 'kirec');
@@ -85,9 +88,12 @@ export function deleteProject(state: AppState, projectId: string): AppState {
   } else if (projectToDelete?.type === 'tekstur' && activeTextureProjectId === projectId) {
     const remaining = projects.filter(p => p.type === 'tekstur');
     activeTextureProjectId = remaining.length > 0 ? remaining[0].id : null;
+  } else if (projectToDelete?.type === 'tuz' && activeTuzProjectId === projectId) {
+    const remaining = projects.filter(p => p.type === 'tuz');
+    activeTuzProjectId = remaining.length > 0 ? remaining[0].id : null;
   }
 
-  return { projects, activeProjectId, activeTextureProjectId };
+  return { projects, activeProjectId, activeTextureProjectId, activeTuzProjectId };
 }
 
 export function addMeasurement(state: AppState, projectId: string, result: any): AppState {
@@ -117,7 +123,7 @@ export function deleteMeasurement(state: AppState, projectId: string, measuremen
 
 /* ─── Active Project Helper ─── */
 export function getActiveProject(state: AppState, type: ProjectType): Project | null {
-  const activeId = type === 'kirec' ? state.activeProjectId : state.activeTextureProjectId;
+  const activeId = type === 'kirec' ? state.activeProjectId : type === 'tekstur' ? state.activeTextureProjectId : state.activeTuzProjectId;
   if (!activeId) return null;
   return state.projects.find((p) => p.id === activeId) ?? null;
 }
@@ -125,7 +131,7 @@ export function getActiveProject(state: AppState, type: ProjectType): Project | 
 export function setActiveProject(state: AppState, projectId: string, type: ProjectType): AppState {
   return {
     ...state,
-    ...(type === 'kirec' ? { activeProjectId: projectId } : { activeTextureProjectId: projectId }),
+    ...(type === 'kirec' ? { activeProjectId: projectId } : type === 'tekstur' ? { activeTextureProjectId: projectId } : { activeTuzProjectId: projectId }),
   };
 }
 
@@ -148,7 +154,7 @@ export function exportProjectCSV(project: Project): string {
         r.caco3Yuzde.toFixed(2), r.sinif
       ].join(';');
     });
-  } else {
+  } else if (project.type === 'tekstur') {
     headers = ['Örnek No', 'Tarih', 'Kum (%)', 'Silt (%)', 'Kil (%)', 'Sınıf (TR)', 'Sınıf (EN)'];
     rows = project.measurements.map((m) => {
       const r = m.result as TextureResult;
@@ -156,6 +162,16 @@ export function exportProjectCSV(project: Project): string {
       return [
         r.ornekNo, dateStr, r.sand.toFixed(2), r.silt.toFixed(2), r.clay.toFixed(2),
         r.textureClassTR, r.textureClass
+      ].join(';');
+    });
+  } else {
+    headers = ['Örnek No', 'Tarih', 'Sıcaklık (°C)', 'Saturasyon (cm³)', 'Direnç (Ohm)', '% Toplam Tuz', 'Tuz Sınıfı (%)', 'ECe (dS/m)', 'Tuz Sınıfı (ECe)', 'Uygun Bitkiler'];
+    rows = project.measurements.map((m) => {
+      const r = m.result as TuzResult;
+      const dateStr = new Date(m.timestamp).toLocaleString('tr-TR');
+      return [
+        r.ornekNo, dateStr, r.temperature, r.saturation, r.resistance,
+        r.saltPct.toFixed(2), r.saltClassPct, r.ece.toFixed(1), r.saltClassEce, r.suitableCrops
       ].join(';');
     });
   }
@@ -194,7 +210,7 @@ export function exportProjectExcel(project: Project): void {
         'Sınıf': r.sinif,
       };
     });
-  } else {
+  } else if (project.type === 'tekstur') {
     data = project.measurements.map((m) => {
       const r = m.result as TextureResult;
       return {
@@ -205,6 +221,22 @@ export function exportProjectExcel(project: Project): void {
         'Kil (%)': Number(r.clay.toFixed(2)),
         'Sınıf (TR)': r.textureClassTR,
         'Sınıf (EN)': r.textureClass,
+      };
+    });
+  } else {
+    data = project.measurements.map((m) => {
+      const r = m.result as TuzResult;
+      return {
+        'Örnek No': r.ornekNo,
+        'Tarih': new Date(m.timestamp).toLocaleString('tr-TR'),
+        'Sıcaklık (°C)': r.temperature,
+        'Saturasyon (cm³)': r.saturation,
+        'Direnç (Ohm)': r.resistance,
+        '% Toplam Tuz': Number(r.saltPct.toFixed(2)),
+        'Tuz Sınıfı (%)': r.saltClassPct,
+        'ECe (dS/m)': Number(r.ece.toFixed(1)),
+        'Tuz Sınıfı (ECe)': r.saltClassEce,
+        'Uygun Bitkiler': r.suitableCrops,
       };
     });
   }

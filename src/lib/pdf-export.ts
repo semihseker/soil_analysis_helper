@@ -50,7 +50,8 @@ export async function exportProjectPDF(project: Project): Promise<void> {
   doc.text('Analiz Laboratuvari', pageWidth / 2, 23, { align: 'center', maxWidth: titleMaxW });
 
   const isKirec = project.type === 'kirec';
-  const reportTitle = isKirec ? 'Kirec (CaCO3) Tayini Raporu' : 'Toprak Tekstur Analizi Raporu';
+  const isTuz = project.type === 'tuz';
+  const reportTitle = isKirec ? 'Kirec (CaCO3) Tayini Raporu' : isTuz ? 'Toplam Tuz ve ECe Tayini Raporu' : 'Toprak Tekstur Analizi Raporu';
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
@@ -103,6 +104,24 @@ export async function exportProjectPDF(project: Project): Promise<void> {
         r.textureClass,
       ];
     });
+  } else {
+    headers = ['Ornek No', 'Tarih', 'Sicaklik (°C)', 'Saturasyon (cm3)', 'Direnc (Ohm)', '% Toplam Tuz', 'Tuz Sinifi (%)', 'ECe (dS/m)', 'Tuz Sinifi (ECe)', 'Uygun Bitkiler'];
+    rows = project.measurements.map((m) => {
+      const r = m.result;
+      const d = new Date(m.timestamp);
+      return [
+        r.ornekNo,
+        d.toLocaleDateString('tr-TR') + ' ' + d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }),
+        r.temperature.toString(),
+        r.saturation.toString(),
+        r.resistance.toString(),
+        r.saltPct.toFixed(2),
+        r.saltClassPct,
+        r.ece.toFixed(1),
+        r.saltClassEce,
+        r.suitableCrops,
+      ];
+    });
   }
 
   autoTable(doc, {
@@ -116,6 +135,8 @@ export async function exportProjectPDF(project: Project): Promise<void> {
     alternateRowStyles: { fillColor: [245, 246, 250] },
     columnStyles: isKirec 
       ? { 0: { halign: 'left', fontStyle: 'bold' }, 1: { halign: 'center' }, 8: { fontStyle: 'bold', textColor: [74, 124, 222] }, 9: { halign: 'left' } }
+      : isTuz
+      ? { 0: { halign: 'left', fontStyle: 'bold' }, 1: { halign: 'center' }, 5: { fontStyle: 'bold', textColor: [74, 124, 222] }, 7: { fontStyle: 'bold', textColor: [220, 53, 69] } }
       : { 0: { halign: 'left', fontStyle: 'bold' }, 1: { halign: 'center' }, 5: { fontStyle: 'bold', textColor: [74, 124, 222] } },
     margin: { left: 14, right: 14 },
     didDrawPage: (data) => {
@@ -123,7 +144,7 @@ export async function exportProjectPDF(project: Project): Promise<void> {
       doc.setFontSize(7.5);
       doc.setTextColor(150, 150, 150);
       doc.text(`Sayfa ${pageNum}`, pageWidth / 2, pageHeight - 8, { align: 'center' });
-      doc.text(isKirec ? 'Scheibler Kalsimetre Yontemi' : 'USDA Toprak Tekstur Ucgeni', 14, pageHeight - 8);
+      doc.text(isKirec ? 'Scheibler Kalsimetre Yontemi' : isTuz ? 'Ohmmeter Elektriksel Direnc Yontemi' : 'USDA Toprak Tekstur Ucgeni', 14, pageHeight - 8);
       doc.text(dateStr, pageWidth - 14, pageHeight - 8, { align: 'right' });
 
       if (data.pageNumber > 1) {
