@@ -1,7 +1,20 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type { Project } from './store';
-import { robotoRegularBase64 } from './fonts/Roboto-Regular';
+
+/**
+ * Türkçe özel karakterleri ASCII eşdeğerlerine dönüştür.
+ * jsPDF'in dahili fontları (helvetica) Unicode desteklemediği için gerekli.
+ */
+function tr(text: string): string {
+  return text
+    .replace(/ş/g, 's').replace(/Ş/g, 'S')
+    .replace(/ğ/g, 'g').replace(/Ğ/g, 'G')
+    .replace(/ı/g, 'i').replace(/İ/g, 'I')
+    .replace(/ö/g, 'o').replace(/Ö/g, 'O')
+    .replace(/ü/g, 'u').replace(/Ü/g, 'U')
+    .replace(/ç/g, 'c').replace(/Ç/g, 'C');
+}
 
 async function loadLogoAsBase64(): Promise<string> {
   const response = await fetch('/logo.png');
@@ -19,10 +32,6 @@ export async function exportProjectPDF(project: Project): Promise<void> {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
 
-  doc.addFileToVFS('Roboto-Regular.ttf', robotoRegularBase64);
-  doc.addFont('Roboto-Regular.ttf', 'Roboto', 'normal');
-  doc.addFont('Roboto-Regular.ttf', 'Roboto', 'bold'); // Using the same regular font for bold to keep file size small
-
   let logoLoaded = false;
   try {
     const logoBase64 = await loadLogoAsBase64();
@@ -31,67 +40,66 @@ export async function exportProjectPDF(project: Project): Promise<void> {
   } catch {}
 
   const now = new Date();
-  const dateStr = now.toLocaleDateString('tr-TR', { day: '2-digit', month: 'long', year: 'numeric' });
+  const dateStr = tr(now.toLocaleDateString('tr-TR', { day: '2-digit', month: 'long', year: 'numeric' }));
   const timeStr = now.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
 
-  doc.setFont('Roboto', 'normal');
+  doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(100, 100, 100);
-  doc.text(`${dateStr}`, pageWidth - 14, 14, { align: 'right' });
-  doc.text(`${timeStr}`, pageWidth - 14, 19, { align: 'right' });
+  doc.text(dateStr, pageWidth - 14, 14, { align: 'right' });
+  doc.text(timeStr, pageWidth - 14, 19, { align: 'right' });
 
-  const titleX = logoLoaded ? 40 : 14;
-  const titleMaxW = pageWidth - titleX - 50;
+  const titleMaxW = pageWidth - (logoLoaded ? 40 : 14) - 50;
 
-  doc.setFont('Roboto', 'bold');
+  doc.setFont('helvetica', 'bold');
   doc.setFontSize(13);
   doc.setTextColor(30, 41, 82);
-  doc.text('Eskişehir Osmangazi Üniversitesi', pageWidth / 2, 12, { align: 'center', maxWidth: titleMaxW });
+  doc.text('Eskisehir Osmangazi Universitesi', pageWidth / 2, 12, { align: 'center', maxWidth: titleMaxW });
 
   doc.setFontSize(10);
-  doc.setFont('Roboto', 'normal');
+  doc.setFont('helvetica', 'normal');
   doc.setTextColor(60, 70, 100);
-  doc.text('Toprak Bilimi ve Bitki Besleme Bölümü', pageWidth / 2, 18, { align: 'center', maxWidth: titleMaxW });
-  doc.text('Analiz Laboratuvarı', pageWidth / 2, 23, { align: 'center', maxWidth: titleMaxW });
+  doc.text('Toprak Bilimi ve Bitki Besleme Bolumu', pageWidth / 2, 18, { align: 'center', maxWidth: titleMaxW });
+  doc.text('Analiz Laboratuvari', pageWidth / 2, 23, { align: 'center', maxWidth: titleMaxW });
 
-  const reportTitle = 'Toprak Analiz Sonuçları (Kireç, Tekstür, Tuz)';
+  const reportTitle = 'Toprak Analiz Sonuclari (Kirec, Tekstur, Tuz)';
 
-  doc.setFont('Roboto', 'bold');
+  doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.setTextColor(30, 41, 82);
   doc.text(reportTitle, pageWidth / 2, 30, { align: 'center' });
 
-  doc.setFont('Roboto', 'normal');
+  doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(80, 80, 80);
-  doc.text(`Proje: ${project.name}`, 14, 36);
-  doc.text(`Toplam Örnek: ${project.samples.length}`, pageWidth - 14, 36, { align: 'right' });
+  doc.text(`Proje: ${tr(project.name)}`, 14, 36);
+  doc.text(`Toplam Ornek: ${project.samples.length}`, pageWidth - 14, 36, { align: 'right' });
 
   doc.setDrawColor(200, 200, 210);
   doc.setLineWidth(0.3);
   doc.line(14, 38, pageWidth - 14, 38);
 
   const headers = [
-    'Örnek No', 'Güncelleme Tarihi', 
-    '% CaCO3', 'Kireç Sınıfı', 
-    'Kum-Silt-Kil (%)', 'Tekstür Sınıfı', 
-    '% Toplam Tuz', 'ECe (dS/m)', 'Tuz Sınıfı'
+    'Ornek No', 'Guncelleme Tarihi',
+    '% CaCO3', 'Kirec Sinifi',
+    'Kum-Silt-Kil (%)', 'Tekstur Sinifi',
+    '% Toplam Tuz', 'ECe (dS/m)', 'Tuz Sinifi'
   ];
 
   const rows = project.samples.map((s) => {
     const d = new Date(s.timestamp);
     const dateFormatted = d.toLocaleDateString('tr-TR') + ' ' + d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
-    
+
     return [
-      s.ornekNo,
+      tr(s.ornekNo),
       dateFormatted,
       s.calcimeterResult ? `%${s.calcimeterResult.caco3Yuzde.toFixed(2)}` : '-',
-      s.calcimeterResult ? s.calcimeterResult.sinif : '-',
+      s.calcimeterResult ? tr(s.calcimeterResult.sinif) : '-',
       s.textureResult ? `${s.textureResult.sand.toFixed(0)}-${s.textureResult.silt.toFixed(0)}-${s.textureResult.clay.toFixed(0)}` : '-',
-      s.textureResult ? s.textureResult.textureClassTR : '-',
+      s.textureResult ? tr(s.textureResult.textureClassTR) : '-',
       s.tuzResult ? `%${s.tuzResult.saltPct.toFixed(2)}` : '-',
       s.tuzResult ? s.tuzResult.ece.toFixed(1) : '-',
-      s.tuzResult ? s.tuzResult.saltClassEce : '-',
+      s.tuzResult ? tr(s.tuzResult.saltClassEce) : '-',
     ];
   });
 
@@ -100,17 +108,17 @@ export async function exportProjectPDF(project: Project): Promise<void> {
     head: [headers],
     body: rows,
     theme: 'grid',
-    styles: { font: 'Roboto', fontSize: 8, cellPadding: 2.5, lineColor: [200, 200, 210], lineWidth: 0.2 },
+    styles: { font: 'helvetica', fontSize: 8, cellPadding: 2.5, lineColor: [200, 200, 210], lineWidth: 0.2 },
     headStyles: { fillColor: [30, 41, 82], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.5, halign: 'center' },
     bodyStyles: { textColor: [40, 40, 50], halign: 'center' },
     alternateRowStyles: { fillColor: [245, 246, 250] },
-    columnStyles: { 
-      0: { halign: 'left', fontStyle: 'bold' }, 
-      2: { fontStyle: 'bold', textColor: [74, 124, 222] }, // Kirec %
-      4: { halign: 'center', textColor: [100, 100, 100] }, // Kum-Silt-Kil
-      5: { fontStyle: 'bold', textColor: [34, 139, 34] }, // Tekstur
-      6: { fontStyle: 'bold', textColor: [220, 53, 69] }, // Tuz %
-      7: { fontStyle: 'bold', textColor: [220, 53, 69] }, // ECe
+    columnStyles: {
+      0: { halign: 'left', fontStyle: 'bold' },
+      2: { fontStyle: 'bold', textColor: [74, 124, 222] },
+      4: { halign: 'center', textColor: [100, 100, 100] },
+      5: { fontStyle: 'bold', textColor: [34, 139, 34] },
+      6: { fontStyle: 'bold', textColor: [220, 53, 69] },
+      7: { fontStyle: 'bold', textColor: [220, 53, 69] },
     },
     margin: { left: 14, right: 14 },
     didDrawPage: (data) => {
@@ -122,11 +130,11 @@ export async function exportProjectPDF(project: Project): Promise<void> {
       doc.text(dateStr, pageWidth - 14, pageHeight - 8, { align: 'right' });
 
       if (data.pageNumber > 1) {
-        doc.setFont('Roboto', 'bold');
+        doc.setFont('helvetica', 'bold');
         doc.setFontSize(9);
         doc.setTextColor(30, 41, 82);
         doc.text(reportTitle, 14, 10);
-        doc.text(`Proje: ${project.name}`, pageWidth - 14, 10, { align: 'right' });
+        doc.text(`Proje: ${tr(project.name)}`, pageWidth - 14, 10, { align: 'right' });
         doc.setDrawColor(200, 200, 210);
         doc.line(14, 13, pageWidth - 14, 13);
       }
@@ -134,5 +142,5 @@ export async function exportProjectPDF(project: Project): Promise<void> {
   });
 
   const safeName = project.name.replace(/[^a-zA-Z0-9ğüşıöçĞÜŞİÖÇ_\- ]/g, '').replace(/\s+/g, '_');
-  doc.save(`${safeName}_Tüm_Analizler.pdf`);
+  doc.save(`${tr(safeName)}_Tum_Analizler.pdf`);
 }
