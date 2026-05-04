@@ -247,6 +247,80 @@ export function hesaplaTexture(input: TextureInput): TextureResult {
   };
 }
 
+/* ─── Hidrometre Yöntemi ─── */
+/**
+ * Hidrometre yöntemiyle tekstür hesaplama
+ * Sıcaklık düzeltmesi: °C → °F, referans 68°F, her °F farkı için 0.2 düzeltme
+ * Kaynak: aaa.xlsx / DATA+TRIANGLE
+ */
+
+export interface HydrometerInput {
+  ornekNo?: string;
+  okuma40sn: number;     // 40. saniye hidrometre okuması (g/L)
+  okuma2saat: number;    // 2. saat hidrometre okuması (g/L)
+  sicaklik40sn: number;  // 40. saniyedeki sıcaklık (°C)
+  sicaklik2saat: number; // 2. saatteki sıcaklık (°C)
+}
+
+export interface HydrometerResult extends TextureResult {
+  duzeltilmis40sn: number;
+  duzeltilmis2saat: number;
+  sicaklikDuzeltme40sn: number;
+  sicaklikDuzeltme2saat: number;
+}
+
+const C_TO_F_MULT = 1.8;
+const C_TO_F_OFFSET = 32;
+const REF_TEMP_F = 68;
+const TEMP_CORRECTION = 0.2;
+
+export function hesaplaHydrometer(input: HydrometerInput): HydrometerResult {
+  const { okuma40sn, okuma2saat, sicaklik40sn, sicaklik2saat, ornekNo } = input;
+
+  if (isNaN(okuma40sn) || isNaN(okuma2saat) || isNaN(sicaklik40sn) || isNaN(sicaklik2saat)) {
+    throw new TextureError('Tüm alanları doğru doldurun.');
+  }
+
+  // °C → °F
+  const sic40F = sicaklik40sn * C_TO_F_MULT + C_TO_F_OFFSET;
+  const sic2hF = sicaklik2saat * C_TO_F_MULT + C_TO_F_OFFSET;
+
+  // Sıcaklık düzeltmesi (referans 68°F)
+  const duzeltme40 = (sic40F - REF_TEMP_F) * TEMP_CORRECTION;
+  const duzeltme2h = (sic2hF - REF_TEMP_F) * TEMP_CORRECTION;
+
+  // Düzeltilmiş hidrometre okumaları
+  const duzOkuma40 = okuma40sn + duzeltme40;
+  const duzOkuma2h = okuma2saat + duzeltme2h;
+
+  // Yüzdeler
+  const sand = 100 - (duzOkuma40 * 2);
+  const clay = duzOkuma2h * 2;
+  const silt = 100 - sand - clay;
+
+  if (sand < 0 || clay < 0 || silt < 0) {
+    throw new TextureError(`Hesaplanan yüzdeler negatif olamaz (Kum: ${sand.toFixed(1)}, Kil: ${clay.toFixed(1)}, Silt: ${silt.toFixed(1)}). Giriş değerlerini kontrol edin.`);
+  }
+
+  const { name, nameTR } = classifySoilTexture(sand, clay, silt);
+  const [cartX, cartY] = toCartesian(sand, clay, silt);
+
+  return {
+    ornekNo: ornekNo || 'Örnek',
+    sand,
+    silt,
+    clay,
+    textureClass: name,
+    textureClassTR: nameTR,
+    cartX,
+    cartY,
+    duzeltilmis40sn: duzOkuma40,
+    duzeltilmis2saat: duzOkuma2h,
+    sicaklikDuzeltme40sn: duzeltme40,
+    sicaklikDuzeltme2saat: duzeltme2h,
+  };
+}
+
 /* ─── Üçgen çizimi için USDA polygon verilerini dışa aktar ─── */
 export function getUSDAPolygonsCartesian(): { name: string; nameTR: string; points: [number, number][] }[] {
   return USDA_POLYGONS.map((poly) => ({

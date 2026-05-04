@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toCartesian, classifySoilTexture, hesaplaTexture, TextureError } from './soil-texture';
+import { toCartesian, classifySoilTexture, hesaplaTexture, hesaplaHydrometer, TextureError } from './soil-texture';
 
 describe('toCartesian', () => {
   it('köşe noktalarını doğru dönüştürmeli', () => {
@@ -93,5 +93,47 @@ describe('hesaplaTexture', () => {
   it('Hindistan CSV verisi: Bhiwani örneği doğru sınıflandırılmalı', () => {
     const result = hesaplaTexture({ sand: 49, silt: 27, clay: 24, ornekNo: 'Bhiwani' });
     expect(result.textureClass).toBe('Sandy Clay Loam');
+  });
+});
+
+describe('hesaplaHydrometer', () => {
+  it('Excel referans değerleriyle doğru hesaplamalı', () => {
+    // Python referans: okuma_40sn=38.5, okuma_2saat=4.75, sicaklik_40sn=24.25, sicaklik_2saat=21.5
+    // Beklenen: % kum≈19.94, % kil≈10.58, % silt≈69.48
+    const r = hesaplaHydrometer({
+      okuma40sn: 38.5,
+      okuma2saat: 4.75,
+      sicaklik40sn: 24.25,
+      sicaklik2saat: 21.5,
+      ornekNo: 'Excel-Test',
+    });
+
+    expect(r.ornekNo).toBe('Excel-Test');
+    expect(r.sand).toBeCloseTo(19.94, 1);
+    expect(r.clay).toBeCloseTo(10.58, 1);
+    expect(r.silt).toBeCloseTo(69.48, 1);
+    expect(r.textureClass).toBe('Silt Loam');
+    expect(r.textureClassTR).toBe('Siltli Tın');
+  });
+
+  it('20°C referans sıcaklıkta düzeltme sıfıra yakın olmalı', () => {
+    const r = hesaplaHydrometer({
+      okuma40sn: 30,
+      okuma2saat: 10,
+      sicaklik40sn: 20,  // 68°F = referans
+      sicaklik2saat: 20,
+    });
+    // Düzeltme = (68 - 68) * 0.2 = 0
+    expect(r.duzeltilmis40sn).toBeCloseTo(30, 2);
+    expect(r.duzeltilmis2saat).toBeCloseTo(10, 2);
+  });
+
+  it('geçersiz giriş hata fırlatmalı', () => {
+    expect(() => hesaplaHydrometer({
+      okuma40sn: NaN,
+      okuma2saat: 10,
+      sicaklik40sn: 20,
+      sicaklik2saat: 20,
+    })).toThrow(TextureError);
   });
 });
